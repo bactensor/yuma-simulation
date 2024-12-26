@@ -1,0 +1,20 @@
+{
+  "template": "https://github.com/reef-technologies/cookiecutter-rt-pkg",
+  "commit": "ef29edded43605df402e1d5ae7530d69310be251",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "package_name": "yuma_simulation",
+      "repository_github_url": "https://github.com/DarnoX-reef/yuma-simulation",
+      "is_django_package": "n",
+      "build_docker_image": "n",
+      "_jinja2_env_vars": {
+        "block_start_string": "# COOKIECUTTER{%",
+        "block_end_string": "%}"
+      },
+      "_template": "https://github.com/reef-technologies/cookiecutter-rt-pkg",
+      "_commit": "ef29edded43605df402e1d5ae7530d69310be251"
+    }
+  },
+  "directory": null
+}
