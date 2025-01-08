@@ -115,7 +115,7 @@ def run_simulation(
 def _generate_draggable_html_table(
     table_data: dict[str, list[str]],
     summary_table: pd.DataFrame,
-    case_row_ranges: list[tuple[int, int, int]]
+    case_row_ranges: list[tuple[int, int, int]],
 ) -> str:
     custom_css_js = """
     <style>
@@ -247,10 +247,11 @@ def _generate_draggable_html_table(
 
     return custom_css_js + html_table
 
+
 def _generate_ipynb_table(
-    table_data: dict[str, list[str]], 
-    summary_table: pd.DataFrame, 
-    case_row_ranges: list[tuple[int, int, int]]
+    table_data: dict[str, list[str]],
+    summary_table: pd.DataFrame,
+    case_row_ranges: list[tuple[int, int, int]],
 ) -> str:
     custom_css = """
     <style>
@@ -321,29 +322,34 @@ def generate_total_dividends_table(
     yuma_versions: list[tuple[str, YumaParams]],
     simulation_hyperparameters: SimulationHyperparameters,
 ) -> pd.DataFrame:
-    """Generates a DataFrame of total dividends for standardized validator names across Yuma versions."""
+    """
+    Generates a DataFrame of total dividends for standardized validator names
+    across multiple Yuma versions, dynamically handling any number of validators.
+    """
 
-    standardized_validators = ["Validator A", "Validator B", "Validator C"]
-    rows: list[dict[str, object]] = []
+    all_column_names = set()
 
+    rows = []
     for case in cases:
-        if len(case.validators) != 3:
-            raise ValueError(f"Case '{case.name}' does not have exactly 3 validators.")
+        case_standardized_validators = [
+            f"Validator {chr(ord('A') + i)}" for i in range(len(case.validators))
+        ]
 
         validator_mapping = {
-            case.validators[0]: "Validator A",
-            case.validators[1]: "Validator B",
-            case.validators[2]: "Validator C",
+            validator: case_standardized_validators[i]
+            for i, validator in enumerate(case.validators)
         }
 
-        row: dict[str, object] = {"Case": case.name}
+        row = {"Case": case.name}
 
+        # Run each Yuma version simulation
         for yuma_version, yuma_params in yuma_versions:
             yuma_config = YumaConfig(
                 simulation=simulation_hyperparameters,
                 yuma_params=yuma_params,
             )
 
+            # Run the simulation for the current case and Yuma version
             dividends_per_validator, _, _ = run_simulation(
                 case=case,
                 yuma_version=yuma_version,
@@ -357,25 +363,32 @@ def generate_total_dividends_table(
                 num_epochs=case.num_epochs,
             )
 
+            # Map to standardized validator keys
             standardized_dividends = {
-                validator_mapping[orig_val]: total_dividends.get(orig_val, 0.0)
-                for orig_val in case.validators
+                validator_mapping[original_val]: total_dividends.get(original_val, 0.0)
+                for original_val in case.validators
             }
 
-            for std_validator in standardized_validators:
-                dividend = standardized_dividends.get(std_validator, 0.0)
-                column_name = f"{std_validator} - {yuma_version}"
-                row[column_name] = dividend
+            # Store results in the row
+            for std_val in case_standardized_validators:
+                column_name = f"{std_val} - {yuma_version}"
+                row[column_name] = standardized_dividends.get(std_val, 0.0)
+                all_column_names.add(column_name)
 
         rows.append(row)
 
+    # Build the DataFrame
     df = pd.DataFrame(rows)
+
     columns = ["Case"]
+
     for yuma_version, _ in yuma_versions:
-        for std_validator in standardized_validators:
-            col_name = f"{std_validator} - {yuma_version}"
-            if col_name in df.columns:
-                columns.append(col_name)
-    df = df[columns]
+        version_columns = sorted(
+            col for col in all_column_names if col.endswith(f"- {yuma_version}")
+        )
+        columns.extend(version_columns)
+
+    # Reindex DataFrame so all columns appear. Fill missing with 0.0
+    df = df.reindex(columns=columns, fill_value=0.0)
 
     return df

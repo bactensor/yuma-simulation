@@ -18,7 +18,7 @@ def main():
         simulation_hyperparameters = SimulationHyperparameters(
             bond_penalty=bond_penalty,
         )
-        
+
         # Make sure the output file name matches the bond_penalty parameter
         file_name = f"simulation_results_b{bond_penalty}.html"
 
@@ -57,6 +57,7 @@ def main():
             f.write(chart_table.data)
 
         print(f"HTML saved to {file_name}")
+
 
 if __name__ == "__main__":
     main()

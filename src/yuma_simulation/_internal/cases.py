@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
-
 import torch
+from dataclasses import dataclass, field
 
 # Registry to store case classes
 class_registry = {}
@@ -13,11 +12,12 @@ def register_case(name: str):
 
     return decorator
 
+
 @dataclass
 class BaseCase:
+    base_validator: str
     name: str
     validators: list[str]
-    base_validator: str
     num_epochs: int = 40
     reset_bonds: bool = False
     reset_bonds_index: int = None
@@ -39,6 +39,115 @@ class BaseCase:
             raise ValueError(
                 f"base_validator '{self.base_validator}' must be in validators list."
             )
+
+
+@dataclass
+class MetagraphCase(BaseCase):
+    """
+    A 'Case' that filters out validators with S > 0 and provides weights and stakes
+    only for those validators across all fetched metagraphs.
+    """
+
+    introduce_shift: bool = False
+    shift_validator_id: int = 0
+    base_validator: str = ""
+    num_epochs: int = 40
+
+    name: str = "Dynamic Metagraph Case"
+    metas: list[dict] = field(
+        default_factory=list
+    )  # List of metagraph dicts: { "S": ..., "W": ..., ... }
+
+    validators: list[str] = field(default_factory=list)
+
+    valid_indices: list[int] = field(default_factory=list, init=False)
+    server_limit: int = 256  # Limit the number of servers (columns in W)
+    validators_limit: int = 256  # Limit the number of validators (columns in S)
+
+    def __post_init__(self):
+        """
+        Inspect the first metagraph to identify validators with S > 0.
+        """
+        if len(self.metas) == 0:
+            raise ValueError("No metagraphs provided.")
+
+        # Convert NumPy arrays -> torch.Tensor for all metas
+        for i, meta in enumerate(self.metas):
+            if "S" in meta and not isinstance(meta["S"], torch.Tensor):
+                meta["S"] = torch.tensor(meta["S"])
+
+            if "W" in meta and not isinstance(meta["W"], torch.Tensor):
+                meta["W"] = torch.tensor(meta["W"])
+
+        # Process the first meta for valid indices
+        meta_0 = self.metas[0]
+        stakes_tensor = meta_0["S"]  # shape [n_validators]
+
+        # Create mask and limit valid indices for testing purposes
+        mask = stakes_tensor >= 1000
+        neg_mask = ~mask
+
+        self.valid_indices = mask.nonzero(as_tuple=True)[0].tolist()
+        self.valid_indices = self.valid_indices[: self.validators_limit]
+
+        self.miner_indices = neg_mask.nonzero(as_tuple=True)[0].tolist()
+        self.miner_indices = self.miner_indices[: self.server_limit]
+
+        if not self.valid_indices:
+            raise ValueError("No validators have S > 0 in the first metagraph.")
+
+        # Generate validator names
+        if not self.validators:
+            self.validators = [f"Validator {i}" for i in range(len(self.valid_indices))]
+
+        try:
+            row_in_valid_indices = self.valid_indices.index(self.shift_validator_id)
+            self.base_validator = self.validators[row_in_valid_indices]
+        except ValueError:
+            raise ValueError(
+                "The shifted validator id is not present in the list of valid validator id's"
+            )
+
+        super().__post_init__()
+
+    @property
+    def weights_epochs(self) -> list[torch.Tensor]:
+        """
+        Return filtered weights for valid validators.
+        """
+        Ws = []
+        for meta in self.metas:
+            W_full = meta["W"]
+            W_valid = W_full[self.valid_indices, :]
+            W_valid = W_valid[:, self.miner_indices]
+
+            Ws.append(W_valid)
+
+        if not self.introduce_shift:
+            return Ws
+
+        try:
+            row_in_W_valid = self.valid_indices.index(self.shift_validator_id)
+        except ValueError:
+            return Ws
+
+        for e in range(1, len(Ws)):
+            # The row in epoch e is replaced by epoch e-1
+            Ws[e][row_in_W_valid, :] = Ws[e - 1][row_in_W_valid, :]
+
+        return Ws
+
+    @property
+    def stakes_epochs(self) -> list[torch.Tensor]:
+        """
+        Return filtered stakes for valid validators across all epochs (metagraphs).
+        """
+        Ss = []
+        for meta in self.metas:
+            S_full = meta["S"]  # shape [n_validators]
+            S_valid = S_full[self.valid_indices]
+            Ss.append(S_valid)
+        return Ss
 
 
 def create_case(case_name: str, **kwargs) -> BaseCase:
@@ -326,6 +435,7 @@ class Case7(BaseCase):
             weights_epochs_case_7.append(W)
         return weights_epochs_case_7
 
+
 @register_case("Case 8")
 @dataclass
 class Case8(BaseCase):
@@ -368,6 +478,7 @@ class Case8(BaseCase):
                 W[:, 0] = 1.0
             weights_epochs_case_8.append(W)
         return weights_epochs_case_8
+
 
 @register_case("Case 9")
 @dataclass
@@ -489,7 +600,9 @@ class Case11(BaseCase):
 @register_case("Case 12")
 @dataclass
 class Case12(BaseCase):
-    name: str = "Case 12 - all validators switch, but small validator/s support alt miner with minimal weight"
+    name: str = (
+        "Case 12 - all validators switch, but small validator/s support alt miner with minimal weight"
+    )
     validators: list[str] = field(
         default_factory=lambda: [
             "Big vali. (0.8)",
@@ -568,7 +681,9 @@ class Case13(BaseCase):
 @dataclass
 @register_case("Case 14")
 class Case14(BaseCase):
-    name: str = "Case 14 - All validators support Server 1, one of them switches to Server 2 for one epoch"
+    name: str = (
+        "Case 14 - All validators support Server 1, one of them switches to Server 2 for one epoch"
+    )
     validators: list[str] = field(
         default_factory=lambda: ["Vali. 1 (0.33)", "Vali. 2 (0.33)", "Vali. 3 (0.34)"]
     )
@@ -598,7 +713,7 @@ class Case14(BaseCase):
 
 
 # Instantiate all cases dynamically
-cases = [cls() for cls in class_registry.values()]
+cases = [cls() for case_name, cls in class_registry.items()]
 
 # Example Usage
 if __name__ == "__main__":

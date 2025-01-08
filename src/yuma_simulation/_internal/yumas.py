@@ -115,7 +115,7 @@ def YumaRust(
     B = B / (B_sum + 1e-6)
     B = torch.nan_to_num(B)
 
-    a = b = torch.tensor(float('nan'))
+    a = b = torch.tensor(float("nan"))
     bond_alpha = config.bond_alpha
     if config.liquid_alpha:
         consensus_high = (
@@ -228,7 +228,7 @@ def Yuma(
     B = S.view(-1, 1) * W_b / (S.view(-1, 1) * W_b).sum(dim=0)
     B = B.nan_to_num(0)
 
-    a = b = torch.tensor(float('nan'))
+    a = b = torch.tensor(float("nan"))
     bond_alpha = config.bond_alpha
     if config.liquid_alpha:
         consensus_high = (
@@ -342,7 +342,7 @@ def Yuma2(
     B = S.view(-1, 1) * W_b / (S.view(-1, 1) * W_b).sum(dim=0)
     B = B.nan_to_num(0)
 
-    a = b = torch.tensor(float('nan'))
+    a = b = torch.tensor(float("nan"))
     bond_alpha = config.bond_alpha
     if config.liquid_alpha:
         consensus_high = (
@@ -543,7 +543,7 @@ def Yuma4(
     T_v = W_clipped.sum(dim=1) / W.sum(dim=1)
 
     # === Liquid Alpha Adjustment ===
-    a = b = torch.tensor(float('nan'))
+    a = b = torch.tensor(float("nan"))
     bond_alpha = config.bond_alpha
     if config.liquid_alpha:
         consensus_high = (

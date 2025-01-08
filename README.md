@@ -41,3 +41,28 @@ pdm install --dev
 ### Release process
 
 Run `nox -s make_release -- X.Y.Z` where `X.Y.Z` is the version you're releasing and follow the printed instructions.
+
+
+### Using the archived metagraph based cases
+There are scripts tailored for generation of dividends charts and total dividends data. The example usage:
+
+python3 ./scripts/archived_metagraph_simulation.py \
+  --subnet-id 21 \
+  --bond-penalties 1.0, 0.99 \
+  --epochs 40 \
+  --tempo 360 \
+  --start-block-offset 14400 \
+  --shift-validator-id 0 \
+  --draggable-table \
+  --download-new-metagraph \
+  --introduce-shift
+
+This example will:
+Simulate on subnet ID 21.
+Use bond penalties 1.0 and 0.99.
+Run for 40 epochs with a tempo of 360.
+Offset the start block by 14400 blocks.
+Shift validator ID 0 weights back by one epoch.
+Enable draggable html table generation.
+Force downloading a new metagraph.
+Introduce a shift of the chosed validator weights in the simulation.
