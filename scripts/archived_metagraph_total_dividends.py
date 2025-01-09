@@ -23,8 +23,8 @@ def create_output_dir(output_dir):
     """
     Creates the output directory if it does not exist.
     """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not os.path.exists(f"./simulation_results/{output_dir}"):
+        os.makedirs(f"./simulation_results/{output_dir}")
         logger.info(f"Created output directory: {output_dir}")
     else:
         logger.debug(f"Output directory already exists: {output_dir}")
@@ -45,7 +45,7 @@ def main():
             start_block=start_block,
             tempo=args.tempo,
             data_points=args.epochs,
-            metagraph_storage_path="./metagraph_diagnostic",
+            metagraph_storage_path=f"./metagraph_diagnostic/{args.metagraphs_dir}",
             result_path="./results",
             liquid_alpha=False,
         )
@@ -55,7 +55,7 @@ def main():
 
     try:
         logger.info("Loading metagraphs.")
-        metas = load_metas_from_directory(f"./{args.metagraphs_dir}")
+        metas = load_metas_from_directory(f"./metagraph_diagnostic/{args.metagraphs_dir}")
     except Exception:
         logger.error("Error while loading metagraphs", exc_info=True)
         return
@@ -73,10 +73,10 @@ def main():
         )
 
         if args.introduce_shift:
-            file_name = f"./{args.output_dir}/metagraph_total_dividends_shifted_b{bond_penalty}.csv"
+            file_name = f"./simulation_results/{args.output_dir}/metagraph_total_dividends_shifted_b{bond_penalty}.csv"
             logger.debug(f"Output file: {file_name}")
         else:
-            file_name = f"./{args.output_dir}/metagraph_total_dividends_results_b{bond_penalty}.csv"
+            file_name = f"./simulation_results/{args.output_dir}/metagraph_total_dividends_results_b{bond_penalty}.csv"
             logger.debug(f"Output file: {file_name}")
 
         base_yuma_params = YumaParams()
@@ -123,6 +123,7 @@ def main():
             cases=[case],
             yuma_versions=yuma_versions,
             simulation_hyperparameters=simulation_hyperparameters,
+            is_metagraph=True,
         )
 
         dividends_df = dividends_df.applymap(

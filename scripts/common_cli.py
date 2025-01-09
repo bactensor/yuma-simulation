@@ -47,13 +47,13 @@ def _create_common_parser():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="simulation_results",
+        default="results",
         help="The dir to store simulation results",
     )
     parser.add_argument(
         "--metagraphs-dir",
         type=str,
-        default="metagraph_diagnostic",
+        default="metagraphs",
         help="Directory which stores the downloaded metagraphs",
     )
     parser.add_argument(

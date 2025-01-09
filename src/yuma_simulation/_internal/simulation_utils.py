@@ -321,25 +321,35 @@ def generate_total_dividends_table(
     cases: list[BaseCase],
     yuma_versions: list[tuple[str, YumaParams]],
     simulation_hyperparameters: SimulationHyperparameters,
+    is_metagraph: bool = False,
 ) -> pd.DataFrame:
     """
-    Generates a DataFrame of total dividends for standardized validator names
-    across multiple Yuma versions, dynamically handling any number of validators.
+    Generates a DataFrame of total dividends for validator names
+    across multiple Yuma versions.
+
+    If is_metagraph=True, it will not apply standardization (i.e., 
+    use the names in case.validators directly).
     """
 
     all_column_names = set()
-
     rows = []
+
     for case in cases:
-        case_standardized_validators = [
-            f"Validator {chr(ord('A') + i)}" for i in range(len(case.validators))
-        ]
+        # Decide how to name the validators
+        if is_metagraph:
+            # Use the validators as-is (e.g., hotkeys from MetagraphCase)
+            final_validator_names = case.validators
+        else:
+            # Apply your original "Validator A/B/C" scheme
+            final_validator_names = [
+                f"Validator {chr(ord('A') + i)}"
+                for i in range(len(case.validators))
+            ]
 
-        validator_mapping = {
-            validator: case_standardized_validators[i]
-            for i, validator in enumerate(case.validators)
-        }
+        # Create a mapping from original name -> final display name
+        validator_mapping = dict(zip(case.validators, final_validator_names))
 
+        # Build the row for this case
         row = {"Case": case.name}
 
         # Run each Yuma version simulation
@@ -349,7 +359,7 @@ def generate_total_dividends_table(
                 yuma_params=yuma_params,
             )
 
-            # Run the simulation for the current case and Yuma version
+            # Run the simulation
             dividends_per_validator, _, _ = run_simulation(
                 case=case,
                 yuma_version=yuma_version,
@@ -363,16 +373,16 @@ def generate_total_dividends_table(
                 num_epochs=case.num_epochs,
             )
 
-            # Map to standardized validator keys
-            standardized_dividends = {
+            # Map original validator names to our final (display) names
+            final_dividends = {
                 validator_mapping[original_val]: total_dividends.get(original_val, 0.0)
                 for original_val in case.validators
             }
 
             # Store results in the row
-            for std_val in case_standardized_validators:
-                column_name = f"{std_val} - {yuma_version}"
-                row[column_name] = standardized_dividends.get(std_val, 0.0)
+            for val_name in final_validator_names:
+                column_name = f"{val_name} - {yuma_version}"
+                row[column_name] = final_dividends.get(val_name, 0.0)
                 all_column_names.add(column_name)
 
         rows.append(row)
@@ -381,7 +391,6 @@ def generate_total_dividends_table(
     df = pd.DataFrame(rows)
 
     columns = ["Case"]
-
     for yuma_version, _ in yuma_versions:
         version_columns = sorted(
             col for col in all_column_names if col.endswith(f"- {yuma_version}")

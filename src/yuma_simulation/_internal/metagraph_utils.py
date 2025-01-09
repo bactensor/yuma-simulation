@@ -59,6 +59,7 @@ def download_metagraph(netuid, start_block, file_prefix, max_retries=5, retry_de
                 "block": meta.block,
                 "S": ensure_tensor_on_cpu(meta.S),
                 "W": ensure_tensor_on_cpu(meta.W),
+                "hotkeys": meta.hotkeys,
             }
             torch.save(meta_dict, file_path)
 

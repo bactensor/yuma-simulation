@@ -98,7 +98,7 @@ class MetagraphCase(BaseCase):
 
         # Generate validator names
         if not self.validators:
-            self.validators = [f"Validator {i}" for i in range(len(self.valid_indices))]
+            self.validators = [meta_0["hotkeys"][uid] for uid in self.valid_indices]
 
         try:
             row_in_valid_indices = self.valid_indices.index(self.shift_validator_id)
