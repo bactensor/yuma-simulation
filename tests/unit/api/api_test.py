@@ -27,6 +27,6 @@ def test_generate_chart_table_with_charts():
     # Check if images are base64 encoded
     for img in imgs:
         src = img.get("src", "")
-        assert src.startswith(
-            "data:image/png;base64,"
-        ), "Image should be base64-encoded"
+        assert src.startswith("data:image/png;base64,"), (
+            "Image should be base64-encoded"
+        )

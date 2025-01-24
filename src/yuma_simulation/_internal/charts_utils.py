@@ -1,5 +1,5 @@
 """
-This module provides utilities for calculating and visualizing simulation results. 
+This module provides utilities for calculating and visualizing simulation results.
 It includes functions for generating plots, calculating dividends, and preparing data for bonds and incentives.
 """
 
@@ -51,6 +51,7 @@ def _plot_dividends(
     dividends_per_validator: dict[str, list[float]],
     case: str,
     base_validator: str,
+    highlight_validator: str,
     to_base64: bool = False,
 ) -> str | None:
     """Generates a plot of dividends over epochs for a set of validators."""
@@ -95,7 +96,12 @@ def _plot_dividends(
         else:
             percentage_str = "(Base)"
 
-        label = f"{validator}: Total = {total_dividend_str} {percentage_str}"
+        if highlight_validator is not None:
+            label = None
+            if validator == highlight_validator:
+                label = f"{validator}: Total = {total_dividend_str} {percentage_str}"
+        else:
+            label = f"{validator}: Total = {total_dividend_str} {percentage_str}"
 
         ax_main.plot(
             x_shifted,

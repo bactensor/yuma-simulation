@@ -1,5 +1,7 @@
 import os
 import bittensor as bt
+import json
+import argparse
 
 from dataclasses import replace
 from yuma_simulation._internal.logger_setup import main_logger as logger
@@ -18,22 +20,8 @@ from yuma_simulation._internal.metagraph_utils import (
     DownloadMetagraph,
 )
 
-
-def create_output_dir(output_dir):
-    """
-    Creates the output directory if it does not exist.
-    """
-    if not os.path.exists(f"./simulation_results/{output_dir}"):
-        os.makedirs(f"./simulation_results/{output_dir}")
-        logger.info(f"Created output directory: {output_dir}")
-    else:
-        logger.debug(f"Output directory already exists: {output_dir}")
-
-
-def main():
-    parser = _create_common_parser()
-    args = parser.parse_args()
-    create_output_dir(args.output_dir)
+def run_single_scenario(args):
+    create_output_dir(args.output_dir, args.subnet_id)
 
     two_days_blocks = 14400
     current_block = bt.subtensor().get_current_block()
@@ -45,7 +33,7 @@ def main():
             start_block=start_block,
             tempo=args.tempo,
             data_points=args.epochs,
-            metagraph_storage_path=f"./metagraph_diagnostic/{args.metagraphs_dir}",
+            metagraph_storage_path=f"./{args.metagraphs_dir}/subnet_{args.subnet_id}",
             result_path="./results",
             liquid_alpha=False,
         )
@@ -55,7 +43,9 @@ def main():
 
     try:
         logger.info("Loading metagraphs.")
-        metas = load_metas_from_directory(f"./metagraph_diagnostic/{args.metagraphs_dir}")
+        metas = load_metas_from_directory(
+            f"./{args.metagraphs_dir}/subnet_{args.subnet_id}"
+        )
     except Exception:
         logger.error("Error while loading metagraphs", exc_info=True)
         return
@@ -73,14 +63,14 @@ def main():
         )
 
         if args.introduce_shift:
-            file_name = f"./simulation_results/{args.output_dir}/metagraph_total_dividends_shifted_b{bond_penalty}.csv"
+            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_total_dividends_shifted_b{bond_penalty}.csv"
             logger.debug(f"Output file: {file_name}")
         else:
-            file_name = f"./simulation_results/{args.output_dir}/metagraph_total_dividends_results_b{bond_penalty}.csv"
+            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_total_dividends_results_b{bond_penalty}.csv"
             logger.debug(f"Output file: {file_name}")
 
         base_yuma_params = YumaParams()
-        liquid_alpha_on_yuma_params = replace(base_yuma_params, liquid_alpha=True)
+        liquid_alpha_on_yuma_params = replace(base_yuma_params, liquid_alpha=True)  # noqa: F841
 
         yuma4_params = YumaParams(
             bond_alpha=0.025,
@@ -134,6 +124,47 @@ def main():
         dividends_df.to_csv(file_name, index=False)
         logger.info(f"CSV file {file_name} has been created successfully.")
 
+
+
+def create_output_dir(output_dir, subnet_id):
+    """
+    Creates the output directory if it does not exist.
+    """
+    if not os.path.exists(f"./{output_dir}/subnet_{subnet_id}"):
+        os.makedirs(f"./{output_dir}/subnet_{subnet_id}")
+        logger.info(f"Created output directory: {output_dir}")
+    else:
+        logger.debug(f"Output directory already exists: {output_dir}")
+
+
+def main():
+    parser = _create_common_parser()
+    args = parser.parse_args()
+
+    if args.use_json_config:
+        # MULTI-RUN MODE:
+        with open(args.config_file, "r") as f:
+            config_data = json.load(f)
+
+        scenarios = config_data.get("scenarios", [])
+        if not scenarios:
+            logger.error("No scenarios found in the JSON file.")
+            return
+
+        for index, scenario_dict in enumerate(scenarios, start=1):
+            logger.info(f"\n===== Running scenario {index} =====")
+
+            scenario_args = argparse.Namespace(**vars(args))
+            for key, value in scenario_dict.items():
+                setattr(scenario_args, key, value)
+
+            run_single_scenario(scenario_args)
+
+    else:
+        # SINGLE-RUN MODE (the old way)
+        run_single_scenario(args)
+
+        
 
 if __name__ == "__main__":
     main()

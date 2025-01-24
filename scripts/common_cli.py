@@ -75,4 +75,21 @@ def _create_common_parser():
         action="store_true",
         help="Introduce shift in the simulation.",
     )
+    parser.add_argument(
+        "--use-json-config",
+        action="store_true",
+        help="Use a JSON config file to run multiple scenarios."
+    )
+    parser.add_argument(
+        "--config-file",
+        type=str,
+        default="metagraph_subnets_config.json",
+        help="Path to JSON file with multiple scenario definitions."
+    )
+    parser.add_argument(
+        "--highlight-validator",
+        type=str,
+        help="The validator that should be highlighted on a dividends plot legend."
+    )
+
     return parser

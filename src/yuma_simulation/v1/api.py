@@ -31,6 +31,7 @@ def generate_chart_table(
     yuma_hyperparameters: SimulationHyperparameters,
     draggable_table: bool = False,
     chart_types: list[str] = None,
+    highlight_validator: str = None,
 ) -> HTML:
     table_data: dict[str, list[str]] = {
         yuma_version: [] for yuma_version, _ in yuma_versions
@@ -99,6 +100,7 @@ def generate_chart_table(
                         case=full_case_name,
                         base_validator=case.base_validator,
                         to_base64=True,
+                        highlight_validator=highlight_validator,
                     )
                 elif chart_type == "bonds":
                     chart_base64 = _plot_bonds(
@@ -156,9 +158,9 @@ def generate_metagraph_based_dividends(
     shift_validator_id: int,
     metas: list[torch.Tensor],
     draggable_table: bool = False,
-    introduce_shift=False,
+    introduce_shift: bool = False,
+    highlight_validator: str = None,
 ) -> HTML:
-
     if not metas:
         logger.error("No metagraphs loaded. Nothing to be generated")
         return
@@ -187,6 +189,7 @@ def generate_metagraph_based_dividends(
             yuma_hyperparameters,
             draggable_table=draggable_table,
             chart_types=["dividends"],
+            highlight_validator=highlight_validator,
         )
     except Exception as e:
         logger.error(f"error generating the chart table {e}")

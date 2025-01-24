@@ -65,7 +65,7 @@ def download_metagraph(netuid, start_block, file_prefix, max_retries=5, retry_de
 
             # 3) Check corruption
             if check_file_corruption(file_path):
-                logger.info(f"Block {block}: File verified successfully.")
+                logger.debug(f"Block {block}: File verified successfully.")
                 return block
             else:
                 logger.error(f"Block {block}: File is corrupted, removing.")

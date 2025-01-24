@@ -28,12 +28,12 @@ class ExperimentSetup:
         self.liquid_alpha = liquid_alpha
         self.consensus_precision = consensus_precision
 
-        if conceal_period == None:
+        if conceal_period is None:
             self.conceal_periods = [0] + list(range(1, 16, 2))
         else:
             self.conceal_periods = conceal_period
 
-        if netuids == None:
+        if netuids is None:
             self.netuids = range(1, 38)
         else:
             self.netuids = netuids

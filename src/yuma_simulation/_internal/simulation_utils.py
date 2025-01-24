@@ -236,10 +236,10 @@ def _generate_draggable_html_table(
     <div class="scrollable-table-container">
         <table>
             <thead>
-                <tr>{''.join(f'<th>{col}</th>' for col in summary_table.columns)}</tr>
+                <tr>{"".join(f"<th>{col}</th>" for col in summary_table.columns)}</tr>
             </thead>
             <tbody>
-                {''.join(html_rows)}
+                {"".join(html_rows)}
             </tbody>
         </table>
     </div>
@@ -306,10 +306,10 @@ def _generate_ipynb_table(
     <div class="scrollable-table-container">
         <table>
             <thead>
-                <tr>{''.join(f'<th>{col}</th>' for col in summary_table.columns)}</tr>
+                <tr>{"".join(f"<th>{col}</th>" for col in summary_table.columns)}</tr>
             </thead>
             <tbody>
-                {''.join(html_rows)}
+                {"".join(html_rows)}
             </tbody>
         </table>
     </div>
@@ -327,7 +327,7 @@ def generate_total_dividends_table(
     Generates a DataFrame of total dividends for validator names
     across multiple Yuma versions.
 
-    If is_metagraph=True, it will not apply standardization (i.e., 
+    If is_metagraph=True, it will not apply standardization (i.e.,
     use the names in case.validators directly).
     """
 
@@ -342,8 +342,7 @@ def generate_total_dividends_table(
         else:
             # Apply your original "Validator A/B/C" scheme
             final_validator_names = [
-                f"Validator {chr(ord('A') + i)}"
-                for i in range(len(case.validators))
+                f"Validator {chr(ord('A') + i)}" for i in range(len(case.validators))
             ]
 
         # Create a mapping from original name -> final display name

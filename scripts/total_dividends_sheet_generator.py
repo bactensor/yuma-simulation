@@ -23,7 +23,7 @@ def main():
 
         # Define Yuma parameter variations
         base_yuma_params = YumaParams()
-        liquid_alpha_on_yuma_params = YumaParams(
+        liquid_alpha_on_yuma_params = YumaParams(  # noqa: F841
             liquid_alpha=True,
         )
 
@@ -32,7 +32,7 @@ def main():
             alpha_high=0.99,
             alpha_low=0.9,
         )
-        yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)
+        yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)  # noqa: F841
 
         yumas = YumaSimulationNames()
         yuma_versions = [

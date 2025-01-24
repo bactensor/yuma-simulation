@@ -600,9 +600,7 @@ class Case11(BaseCase):
 @register_case("Case 12")
 @dataclass
 class Case12(BaseCase):
-    name: str = (
-        "Case 12 - all validators switch, but small validator/s support alt miner with minimal weight"
-    )
+    name: str = "Case 12 - all validators switch, but small validator/s support alt miner with minimal weight"
     validators: list[str] = field(
         default_factory=lambda: [
             "Big vali. (0.8)",
@@ -681,9 +679,7 @@ class Case13(BaseCase):
 @dataclass
 @register_case("Case 14")
 class Case14(BaseCase):
-    name: str = (
-        "Case 14 - All validators support Server 1, one of them switches to Server 2 for one epoch"
-    )
+    name: str = "Case 14 - All validators support Server 1, one of them switches to Server 2 for one epoch"
     validators: list[str] = field(
         default_factory=lambda: ["Vali. 1 (0.33)", "Vali. 2 (0.33)", "Vali. 3 (0.34)"]
     )
