@@ -606,6 +606,8 @@ def Yuma4(
 
         if consensus_high == consensus_low:
             consensus_high = C.quantile(0.99)
+        if consensus_high == consensus_low:
+            consensus_high += 1e-6
 
         a = (
             math.log(1 / config.alpha_high - 1) - math.log(1 / config.alpha_low - 1)
