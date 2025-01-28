@@ -133,7 +133,8 @@ class MetagraphCase(BaseCase):
 
         for e in range(1, len(Ws)):
             # The row in epoch e is replaced by epoch e-1
-            Ws[e][row_in_W_valid, :] = Ws[e - 1][row_in_W_valid, :]
+            if e + 1 < len(Ws):
+                Ws[e][row_in_W_valid, :] = Ws[e + 1][row_in_W_valid, :]
 
         return Ws
 
