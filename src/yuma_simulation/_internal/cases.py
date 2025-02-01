@@ -59,6 +59,8 @@ class MetagraphCase(BaseCase):
     )  # List of metagraph dicts: { "S": ..., "W": ..., ... }
 
     validators: list[str] = field(default_factory=list)
+    top_validators_ids: list[int] = field(default_factory=list)
+    top_validators_hotkeys: list[str] = field(default_factory=list)
 
     valid_indices: list[int] = field(default_factory=list, init=False)
     server_limit: int = 256  # Limit the number of servers (columns in W)
@@ -78,6 +80,9 @@ class MetagraphCase(BaseCase):
 
             if "W" in meta and not isinstance(meta["W"], torch.Tensor):
                 meta["W"] = torch.tensor(meta["W"])
+
+        if self.introduce_shift:
+            self.name = self.name + " - shifted"
 
         # Process the first meta for valid indices
         meta_0 = self.metas[0]
@@ -107,6 +112,18 @@ class MetagraphCase(BaseCase):
             raise ValueError(
                 "The shifted validator id is not present in the list of valid validator id's"
             )
+
+        # Convert top_validators_ids -> top_validators_hotkeys
+        self.top_validators_hotkeys = []
+        for tv_id in self.top_validators_ids:
+            try:
+                row_in_valid_indices = self.valid_indices.index(tv_id)
+                hotkey = self.validators[row_in_valid_indices]
+                self.top_validators_hotkeys.append(hotkey)
+            except ValueError:
+                raise ValueError(
+                    f"Top validator id {tv_id} is not present in valid validator IDs."
+                )
 
         super().__post_init__()
 

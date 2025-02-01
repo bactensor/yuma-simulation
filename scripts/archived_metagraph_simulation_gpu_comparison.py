@@ -38,11 +38,11 @@ def run_single_scenario(args):
     """
     create_output_dir(args.output_dir, args.subnet_id)
 
-    two_days_blocks = 14400
-    current_block = bt.subtensor().get_current_block()
-    start_block = current_block - two_days_blocks
-
     if args.download_new_metagraph:
+        requested_time_window = (args.tempo * args.epochs)
+        current_block = bt.subtensor().get_current_block()
+        start_block = current_block - requested_time_window
+        
         setup = ExperimentSetup(
             netuids=[args.subnet_id],
             start_block=start_block,
@@ -70,46 +70,59 @@ def run_single_scenario(args):
 
     try:
         logger.info("Creating MetagraphCase.")
-        case = MetagraphCase(
+        case_normal = MetagraphCase(
             shift_validator_id=args.shift_validator_id,
             name="Metagraph Based Dividends",
             metas=metas,
             num_epochs=len(metas),
-            introduce_shift=args.introduce_shift,
+            introduce_shift=False,
             top_validators_ids=args.top_validators
         )
-        logger.debug(f"MetagraphCase created successfully: {case}")
+        logger.debug(f"MetagraphCase created successfully: {case_normal.name}")
     except Exception:
         logger.error("Error while creating MetagraphCase.", exc_info=True)
         return
-    logger.debug(f"Created MetagraphCase: {case}")
+    logger.debug(f"Created MetagraphCase: {case_normal.name}")
+
+    try:
+        logger.info("Creating MetagraphCase.")
+        case_shifted = MetagraphCase(
+            shift_validator_id=args.shift_validator_id,
+            name="Metagraph Based Dividends",
+            metas=metas,
+            num_epochs=len(metas),
+            introduce_shift=True,
+            top_validators_ids=args.top_validators
+        )
+        logger.debug(f"MetagraphCase created successfully: {case_shifted.name}")
+    except Exception:
+        logger.error("Error while creating MetagraphCase.", exc_info=True)
+        return
+    logger.debug(f"Created MetagraphCase: {case_shifted.name}")
+
 
     try:
         logger.info(f"Running simulation")
         simulation_hyperparameters = SimulationHyperparameters()
 
-        if args.introduce_shift:
-            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_shifted.html"
-            logger.debug(f"Output file: {file_name}")
-        else:
-            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_relative_results.html"
-            logger.debug(f"Output file: {file_name}")
+        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison_debug.html"
 
-        yuma4_params = YumaParams(bond_alpha=0.025, alpha_high=0.9, alpha_low=0.7)
-        yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)
+        yuma_params = YumaParams(bond_alpha=0.025, alpha_high=0.9, alpha_low=0.7)
+        yuma4_liquid_params = replace(yuma_params, liquid_alpha=True)
 
         yumas = YumaSimulationNames()
         yuma_versions = [
+            (yumas.YUMA_RUST, yuma_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
 
         try:
             chart_table = generate_metagraph_based_dividends(
                 yuma_versions=yuma_versions,
-                cases=[case],
+                cases=[case_normal, case_shifted],
                 yuma_hyperparameters=simulation_hyperparameters,
                 metas=metas,
-                chart_types=["dividends"],
+                chart_types=["relative_dividends"],
                 draggable_table=args.draggable_table,
             )
 

@@ -8,7 +8,7 @@ import torch
 @dataclass
 class SimulationHyperparameters:
     kappa: float = 0.5
-    bond_penalty: float = 1.0
+    bond_penalty: float = None
     total_epoch_emission: float = 100.0
     validator_emission_ratio: float = 0.41
     total_subnet_stake: float = 1_000_000.0

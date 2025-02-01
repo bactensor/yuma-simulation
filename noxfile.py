@@ -148,9 +148,11 @@ def format_(session):
 def lint(session):
     """Run linters in readonly mode."""
     # "test" group is required for mypy to work against test files
-    install(session, "lint", "test")
-    session.run("ruff", "check", "--diff", "--unsafe-fixes", ".")
-    session.run("ruff", "format", "--diff", ".")
+    install(
+        session, "bittensor", "list", "test", "pandas", "pandas-stubs"
+    )
+    session.run("ruff", "check", "--fix", ".")
+    session.run("ruff", "format", ".")
     session.run("mypy", ".")
     session.run("codespell", ".")
     run_shellcheck(session, mode="check")

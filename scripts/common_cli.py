@@ -12,84 +12,84 @@ def _create_common_parser():
         description="Common CLI for Yuma simulation scripts."
     )
 
-    parser.add_argument(
+    # Group 1: Overwritten by JSON config
+    scenarios_specific_args = parser.add_argument_group("Scenario Specific Arguments")
+    scenarios_specific_args.add_argument(
         "--subnet-id",
         type=int,
         default=0,
-        help="The subnet id to run the diagnostics on.",
+        help="The subnet id to run the diagnostics on (overwritten by JSON config).",
     )
-
-    parser.add_argument(
-        "--bond-penalties",
-        nargs="+",
-        type=float,
-        default=[0, 0.5, 0.99, 1.0],
-        help="List of bond penalties to simulate.",
-    )
-    parser.add_argument(
-        "--epochs", type=int, default=40, help="Number of epochs to simulate."
-    )
-    parser.add_argument(
-        "--tempo", type=int, default=360, help="Tempo value for the simulation."
-    )
-    parser.add_argument(
-        "--start-block-offset",
+    scenarios_specific_args.add_argument(
+        "--epochs",
         type=int,
-        default=14400,
-        help="Number of blocks to look back for the start block.",
+        default=40,
+        help="Number of epochs to simulate (overwritten by JSON config).",
     )
-    parser.add_argument(
+    scenarios_specific_args.add_argument(
+        "--tempo",
+        type=int,
+        default=360,
+        help="Tempo value for the simulation (overwritten by JSON config).",
+    )
+    scenarios_specific_args.add_argument(
         "--shift-validator-id",
         type=int,
         default=0,
-        help="The uid of the validator with the weights shifted by 1 epoch back.",
+        help="The uid of the validator with the weights shifted by 1 epoch back (overwritten by JSON config).",
     )
-    parser.add_argument(
+    scenarios_specific_args.add_argument(
+        "--top-validators",
+        type=str,
+        nargs="+",
+        help="List of top validator indices (space-separated hotkeys) that will be plotted in the charts.",
+    )
+
+
+    # Group 2: Global simulation arguments (not overwritten by JSON config)
+    global_simulation_args = parser.add_argument_group("Global Simulation Arguments")
+    global_simulation_args.add_argument(
         "--output-dir",
         type=str,
         default="results",
-        help="The dir to store simulation results",
+        help="The dir to store simulation results.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--metagraphs-dir",
         type=str,
         default="metagraphs",
-        help="Directory which stores the downloaded metagraphs",
+        help="Directory which stores the downloaded metagraphs.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--output-prefix",
         type=str,
         default="metagraph_simulation_results",
         help="Prefix for output file names.",
     )
-    parser.add_argument(
-        "--draggable-table", action="store_true", help="Make the table draggable."
+    global_simulation_args.add_argument(
+        "--draggable-table",
+        action="store_true",
+        help="Make the table draggable.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--download-new-metagraph",
         action="store_true",
         help="Download a new metagraph.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--introduce-shift",
         action="store_true",
         help="Introduce shift in the simulation.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--use-json-config",
         action="store_true",
-        help="Use a JSON config file to run multiple scenarios."
+        help="Use a JSON config file to run multiple scenarios.",
     )
-    parser.add_argument(
+    global_simulation_args.add_argument(
         "--config-file",
         type=str,
         default="metagraph_subnets_config.json",
-        help="Path to JSON file with multiple scenario definitions."
+        help="Path to JSON file with multiple scenario definitions.",
     )
-    parser.add_argument(
-        "--highlight-validator",
-        type=str,
-        help="The validator that should be highlighted on a dividends plot legend."
-    )
-
     return parser

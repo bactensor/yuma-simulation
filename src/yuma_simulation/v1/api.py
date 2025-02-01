@@ -7,6 +7,7 @@ from yuma_simulation._internal.cases import BaseCase
 from yuma_simulation._internal.charts_utils import (
     _plot_bonds,
     _plot_dividends,
+    _plot_relative_dividends,
     _plot_incentives,
     _plot_validator_server_weights,
 )
@@ -31,7 +32,6 @@ def generate_chart_table(
     yuma_hyperparameters: SimulationHyperparameters,
     draggable_table: bool = False,
     chart_types: list[str] = None,
-    highlight_validator: str = None,
 ) -> HTML:
     table_data: dict[str, list[str]] = {
         yuma_version: [] for yuma_version, _ in yuma_versions
@@ -56,25 +56,27 @@ def generate_chart_table(
         case_start = current_row_count
         for chart_type in current_chart_types:
             chart_base64_dict: dict[str, str] = {}
+            #TODO(konrad) check if optimization with pushing the yuma versions to outer context is possible
             for yuma_version, yuma_params in yuma_versions:
                 yuma_config = YumaConfig(
                     simulation=yuma_hyperparameters, yuma_params=yuma_params
                 )
                 yuma_names = YumaSimulationNames()
-                full_case_name = f"{case.name} - {yuma_version}"
+                final_case_name = f"{case.name} - {yuma_version}"
                 if yuma_version in [
                     yuma_names.YUMA,
                     yuma_names.YUMA_LIQUID,
                     yuma_names.YUMA2,
                 ]:
-                    full_case_name = (
-                        f"{full_case_name} - beta={yuma_config.bond_penalty}"
+                    final_case_name = (
+                        f"{case.name} - beta={yuma_config.bond_penalty}"
                     )
                 elif yuma_version == yuma_names.YUMA4_LIQUID:
-                    full_case_name = f"{full_case_name} [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
+                    final_case_name = f"{case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
 
                 (
                     dividends_per_validator,
+                    validators_relative_dividends,
                     bonds_per_epoch,
                     server_incentives_per_epoch,
                 ) = run_simulation(
@@ -89,7 +91,7 @@ def generate_chart_table(
                         weights_epochs=case.weights_epochs,
                         servers=case.servers,
                         num_epochs=case.num_epochs,
-                        case_name=full_case_name,
+                        case_name=final_case_name,
                         to_base64=True,
                     )
                 elif chart_type == "dividends":
@@ -97,10 +99,17 @@ def generate_chart_table(
                         num_epochs=case.num_epochs,
                         validators=case.validators,
                         dividends_per_validator=dividends_per_validator,
-                        case=full_case_name,
-                        base_validator=case.base_validator,
+                        case_name=final_case_name,
+                        case=case,
                         to_base64=True,
-                        highlight_validator=highlight_validator,
+                    )
+                elif chart_type == "relative_dividends":
+                    chart_base64 = _plot_relative_dividends(
+                        validators_relative_dividends=validators_relative_dividends,
+                        case_name=final_case_name,
+                        case=case,
+                        num_epochs=case.num_epochs,
+                        to_base64=True,
                     )
                 elif chart_type == "bonds":
                     chart_base64 = _plot_bonds(
@@ -108,7 +117,7 @@ def generate_chart_table(
                         validators=case.validators,
                         servers=case.servers,
                         bonds_per_epoch=bonds_per_epoch,
-                        case_name=full_case_name,
+                        case_name=final_case_name,
                         to_base64=True,
                     )
                 elif chart_type == "normalized_bonds":
@@ -117,7 +126,7 @@ def generate_chart_table(
                         validators=case.validators,
                         servers=case.servers,
                         bonds_per_epoch=bonds_per_epoch,
-                        case_name=full_case_name,
+                        case_name=final_case_name,
                         to_base64=True,
                         normalize=True,
                     )
@@ -126,7 +135,7 @@ def generate_chart_table(
                         servers=case.servers,
                         server_incentives_per_epoch=server_incentives_per_epoch,
                         num_epochs=case.num_epochs,
-                        case_name=full_case_name,
+                        case_name=final_case_name,
                         to_base64=True,
                     )
                 else:
@@ -152,47 +161,26 @@ def generate_chart_table(
     return HTML(full_html)
 
 
+#TODO(Konrad) is this even needed anymore?
 def generate_metagraph_based_dividends(
     yuma_versions: list[tuple[str, YumaParams]],
+    cases: list[BaseCase],
     yuma_hyperparameters: SimulationHyperparameters,
-    shift_validator_id: int,
     metas: list[torch.Tensor],
+    chart_types: list[str],
     draggable_table: bool = False,
-    introduce_shift: bool = False,
-    highlight_validator: str = None,
 ) -> HTML:
-    if not metas:
-        logger.error("No metagraphs loaded. Nothing to be generated")
-        return
-    logger.debug(f"Loaded {len(metas)} metagraphs.")
-
-    try:
-        logger.info("Creating MetagraphCase.")
-        case = MetagraphCase(
-            shift_validator_id=shift_validator_id,
-            name="Simulation Example",
-            metas=metas,
-            num_epochs=len(metas),
-            introduce_shift=introduce_shift,
-        )
-        logger.debug(f"MetagraphCase created successfully: {case.name}")
-    except Exception:
-        logger.error("Error while creating MetagraphCase.", exc_info=True)
-        return
-    logger.debug(f"Created MetagraphCase: {case.name}")
-
     try:
         logger.info("Generating chart table.")
         chart_table = generate_chart_table(
-            [case],
+            cases,
             yuma_versions,
             yuma_hyperparameters,
             draggable_table=draggable_table,
-            chart_types=["dividends"],
-            highlight_validator=highlight_validator,
+            chart_types=chart_types,
         )
     except Exception as e:
-        logger.error(f"error generating the chart table {e}")
+        logger.error(f"Error generating the chart table: {e}")
         return
 
     return chart_table

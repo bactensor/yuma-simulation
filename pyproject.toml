@@ -133,6 +133,23 @@ dependencies = [
     "widgetsnbextension==4.0.13",
 ]
 
+[tool.pdm.dev-dependencies]
+lint = [
+    "ruff>=0.1.0",
+    "mypy",
+    "codespell",
+    "pandas-stubs",
+]
+bittensor = [
+    "bittensor",
+]
+test = [
+    "pytest",
+]
+
+[tool.ruff]
+ignore = ["E741"]
+
 [project.urls]
 "Source" = "https://github.com/DarnoX-reef/yuma-simulation"
 "Issue Tracker" = "https://github.com/DarnoX-reef/yuma-simulation/issues"
