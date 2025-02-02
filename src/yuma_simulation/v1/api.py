@@ -10,6 +10,7 @@ from yuma_simulation._internal.charts_utils import (
     _plot_relative_dividends,
     _plot_incentives,
     _plot_validator_server_weights,
+    _plot_relative_dividends_comparisson,
 )
 from yuma_simulation._internal.simulation_utils import (
     _generate_draggable_html_table,
@@ -22,8 +23,6 @@ from yuma_simulation._internal.yumas import (
     YumaParams,
     YumaSimulationNames,
 )
-
-from yuma_simulation._internal.cases import MetagraphCase
 
 
 def generate_chart_table(
@@ -161,26 +160,106 @@ def generate_chart_table(
     return HTML(full_html)
 
 
-#TODO(Konrad) is this even needed anymore?
-def generate_metagraph_based_dividends(
+def generate_metagraph_based_relative_dividends_comparisson_table(
     yuma_versions: list[tuple[str, YumaParams]],
-    cases: list[BaseCase],
+    normal_case: BaseCase,
+    shifted_case: BaseCase,
     yuma_hyperparameters: SimulationHyperparameters,
-    metas: list[torch.Tensor],
-    chart_types: list[str],
     draggable_table: bool = False,
 ) -> HTML:
-    try:
-        logger.info("Generating chart table.")
-        chart_table = generate_chart_table(
-            cases,
-            yuma_versions,
-            yuma_hyperparameters,
-            draggable_table=draggable_table,
-            chart_types=chart_types,
+    """
+    Generate an HTML table with one column per yuma_version.
+    
+    Each column will have three rows:
+      - Row 0: The relative dividends chart for the normal case.
+      - Row 1: The relative dividends chart for the shifted case.
+      - Row 2: A comparisson chart that uses the validators_relative_dividends data
+               from both cases.
+    
+    It is assumed that a plotting function _plot_relative_dividends_comparisson exists.
+    """
+    # Create a dictionary with one key per yuma version.
+    table_data: dict[str, list[str]] = {yuma_version: [] for yuma_version, _ in yuma_versions}
+    
+    # For generating proper case names, we mimic generate_chart_table logic.
+    yuma_names = YumaSimulationNames()
+    
+    # Iterate over each yuma_version.
+    for yuma_version, yuma_params in yuma_versions:
+        # Create the configuration for this simulation.
+        yuma_config = YumaConfig(simulation=yuma_hyperparameters, yuma_params=yuma_params)
+        
+        # Prepare a descriptive case name similar to generate_chart_table.
+        if yuma_version in [yuma_names.YUMA, yuma_names.YUMA_LIQUID, yuma_names.YUMA2]:
+            final_case_name_normal = f"{normal_case.name} - beta={yuma_config.bond_penalty}"
+            final_case_name_shifted = f"{shifted_case.name} - beta={yuma_config.bond_penalty}"
+        elif yuma_version == yuma_names.YUMA4_LIQUID:
+            final_case_name_normal = f"{normal_case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
+            final_case_name_shifted = f"{shifted_case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
+        else:
+            final_case_name_normal = f"{normal_case.name} - {yuma_version}"
+            final_case_name_shifted = f"{shifted_case.name} - {yuma_version}"
+        
+        # Run simulation for the normal case.
+        _, validators_relative_dividends_normal, _, _ = run_simulation(
+            case=normal_case,
+            yuma_version=yuma_version,
+            yuma_config=yuma_config,
         )
-    except Exception as e:
-        logger.error(f"Error generating the chart table: {e}")
-        return
-
-    return chart_table
+        
+        # Run simulation for the shifted case.
+        _, validators_relative_dividends_shifted, _, _ = run_simulation(
+            case=shifted_case,
+            yuma_version=yuma_version,
+            yuma_config=yuma_config,
+        )
+        
+        # Generate chart for the normal case.
+        chart_normal = _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends_normal,
+            case_name=final_case_name_normal,
+            case=normal_case,
+            num_epochs=normal_case.num_epochs,
+            to_base64=True,
+        )
+        
+        # Generate chart for the shifted case.
+        chart_shifted = _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends_shifted,
+            case_name=final_case_name_shifted,
+            case=shifted_case,
+            num_epochs=shifted_case.num_epochs,
+            to_base64=True,
+        )
+        
+        # Generate the comparisson chart using both simulation outputs.
+        chart_comparisson = _plot_relative_dividends_comparisson(
+            validators_relative_dividends_normal=validators_relative_dividends_normal,
+            validators_relative_dividends_shifted=validators_relative_dividends_shifted,
+            num_epochs=normal_case.num_epochs,  # Assuming both cases use the same number of epochs.
+            case=normal_case,
+            to_base64=True,
+        )
+        
+        # Append the three rows to this column.
+        table_data[yuma_version].append(chart_normal)
+        table_data[yuma_version].append(chart_shifted)
+        table_data[yuma_version].append(chart_comparisson)
+    
+    # Define row ranges for the table (here each row represents a particular chart type).
+    # In the generated table, row 0 = normal_case chart, row 1 = shifted_case chart,
+    # and row 2 = comparisson chart.
+    case_row_ranges = [
+        (0, 0, 0),
+        (1, 1, 1),
+        (2, 2, 2),
+    ]
+    
+    summary_table = pd.DataFrame(table_data)
+    
+    if draggable_table:
+        full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)
+    else:
+        full_html = _generate_ipynb_table(table_data, summary_table, case_row_ranges)
+    
+    return HTML(full_html)

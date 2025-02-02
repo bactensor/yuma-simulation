@@ -314,6 +314,126 @@ def _plot_relative_dividends(
         plt.show()
         return None
 
+def _plot_relative_dividends_comparisson(
+    validators_relative_dividends_normal: dict[str, list[float]],
+    validators_relative_dividends_shifted: dict[str, list[float]],
+    case,  # A BaseCase instance to extract top validators and base validator.
+    num_epochs: int,
+    to_base64: bool = False
+) -> str | None:
+    """
+    Plots a comparisson of relative dividends for each validator.
+    
+    For each validator, the function computes:
+    
+        result = -1 * ( normal - shifted ) = shifted - normal
+    
+    Only the validators specified in the case's `top_validators_hotkeys` (plus the `base_validator`)
+    are plotted. The resulting chart has the same style and axes configuration as _plot_relative_dividends.
+    
+    Parameters:
+      - validators_relative_dividends_normal: dict mapping validator names to list of floats (normal case).
+      - validators_relative_dividends_shifted: dict mapping validator names to list of floats (shifted case).
+      - case: The case object (e.g. normal_case) that provides attributes such as 
+              `top_validators_hotkeys` and `base_validator`.
+      - normal_case_name: A string used for the title to identify the normal case.
+      - shifted_case_name: A string used for the title to identify the shifted case.
+      - num_epochs: Number of epochs (length of the dividends lists).
+      - to_base64: If True, returns the plot as a base64-encoded string; otherwise, displays the plot.
+      
+    Returns:
+      A base64 string of the plot if `to_base64` is True; otherwise, None.
+    """
+    plt.close("all")
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    if not validators_relative_dividends_normal:
+        print("No validator data to plot for the normal case.")
+        return None
+
+    # Determine the validators to plot.
+    all_validators = list(validators_relative_dividends_normal.keys())
+    
+    # Use the case's top validators if available; otherwise, plot all.
+    top_vals = getattr(case, "top_validators_hotkeys", [])
+    if top_vals:
+        plot_validator_names = top_vals.copy()
+    else:
+        plot_validator_names = all_validators.copy()
+    
+    # Ensure that the base validator is included.
+    base_validator = getattr(case, "base_validator", None)
+    if base_validator and base_validator not in plot_validator_names:
+        plot_validator_names.append(base_validator)
+    
+    x = np.arange(num_epochs)
+    
+    # Get styles for all validators (assuming _get_validator_styles exists).
+    validator_styles = _get_validator_styles(all_validators)
+    
+    for idx, validator in enumerate(plot_validator_names):
+        # Retrieve dividend series from both dictionaries.
+        normal_dividends = validators_relative_dividends_normal.get(validator, [])
+        shifted_dividends = validators_relative_dividends_shifted.get(validator, [])
+        
+        # Skip plotting if data is missing.
+        if not normal_dividends or not shifted_dividends:
+            continue
+        
+        # Compute the comparisson series:
+        #   diff = -1 * (normal - shifted) = shifted - normal
+        diff = [shifted - normal for normal, shifted in zip(normal_dividends, shifted_dividends)]
+        
+        delta = 0.05
+        x_shifted = x + idx * delta
+        
+        # Compute the average difference and format it as a percentage.
+        total_decimal = sum(diff) / len(diff)
+        sign_str = f"{total_decimal * 100:+.5f}%"
+        label = f"{validator}: total = {sign_str}"
+        
+        # Get style parameters for this validator.
+        linestyle, marker, markersize, markeredgewidth = validator_styles.get(
+            validator, ("-", "o", 5, 1)
+        )
+        
+        ax.plot(
+            x_shifted,
+            diff,
+            label=label,
+            alpha=0.7,
+            marker=marker,
+            markeredgewidth=markeredgewidth,
+            markersize=markersize,
+            linestyle=linestyle,
+        )
+    
+    # Draw a horizontal line at y=0.
+    ax.axhline(y=0, color="black", linewidth=1, linestyle="--", alpha=0.7)
+    
+    # Set x-axis ticks (assuming _set_default_xticks exists).
+    _set_default_xticks(ax, num_epochs)
+    
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Relative Dividend (%)")
+    ax.set_title(f"Comparisson (shifted - normal)")
+    ax.grid(True)
+    ax.legend()
+    
+    # Format y-axis ticks as percentages.
+    def to_percent(y, _):
+        return f"{y * 100:.1f}%"
+    ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
+    
+    plt.subplots_adjust(hspace=0.3)
+    
+    if to_base64:
+        return _plot_to_base64()
+    else:
+        plt.show()
+        return None
+
+
 def _plot_bonds(
     num_epochs: int,
     validators: list[str],

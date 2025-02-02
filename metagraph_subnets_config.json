@@ -2,10 +2,52 @@
   "scenarios": [
     {
       "subnet_id": 9,
-      "epochs": 55,
+      "epochs": 280,
       "tempo": 360,
       "shift_validator_id": 243,
       "top_validators": [109, 238, 244]
+    },
+    {
+      "subnet_id": 15,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 0,
+      "top_validators": [2, 52, 56]
+    },
+    {
+      "subnet_id": 21,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 0,
+      "top_validators": [224, 47, 0]
+    },
+    {
+      "subnet_id": 31,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 49,
+      "top_validators": [10, 250, 107]
+    },
+    {
+      "subnet_id": 42,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 3,
+      "top_validators": [255, 29, 244]
+    },
+    {
+      "subnet_id": 48,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 0,
+      "top_validators": [15, 55, 56]
+    },
+    {
+      "subnet_id": 56,
+      "epochs": 280,
+      "tempo": 360,
+      "shift_validator_id": 1,
+      "top_validators": [207, 190, 100]
     }
   ]
 }

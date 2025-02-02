@@ -11,7 +11,7 @@ from yuma_simulation._internal.yumas import (
     YumaSimulationNames,
 )
 
-from yuma_simulation.v1.api import generate_metagraph_based_dividends
+from yuma_simulation.v1.api import generate_chart_table
 from yuma_simulation._internal.cases import MetagraphCase
 from yuma_simulation._internal.experiment_setup import ExperimentSetup
 from yuma_simulation._internal.metagraph_utils import (
@@ -104,11 +104,10 @@ def run_single_scenario(args):
         ]
 
         try:
-            chart_table = generate_metagraph_based_dividends(
+            chart_table = generate_chart_table(
                 yuma_versions=yuma_versions,
                 cases=[case],
                 yuma_hyperparameters=simulation_hyperparameters,
-                metas=metas,
                 chart_types=["dividends"],
                 draggable_table=args.draggable_table,
             )

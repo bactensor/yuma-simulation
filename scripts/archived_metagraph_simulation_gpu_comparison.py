@@ -11,7 +11,7 @@ from yuma_simulation._internal.yumas import (
     YumaSimulationNames,
 )
 
-from yuma_simulation.v1.api import generate_metagraph_based_dividends
+from yuma_simulation.v1.api import generate_metagraph_based_relative_dividends_comparisson_table
 from yuma_simulation._internal.cases import MetagraphCase
 from yuma_simulation._internal.experiment_setup import ExperimentSetup
 from yuma_simulation._internal.metagraph_utils import (
@@ -70,7 +70,7 @@ def run_single_scenario(args):
 
     try:
         logger.info("Creating MetagraphCase.")
-        case_normal = MetagraphCase(
+        normal_case = MetagraphCase(
             shift_validator_id=args.shift_validator_id,
             name="Metagraph Based Dividends",
             metas=metas,
@@ -78,15 +78,15 @@ def run_single_scenario(args):
             introduce_shift=False,
             top_validators_ids=args.top_validators
         )
-        logger.debug(f"MetagraphCase created successfully: {case_normal.name}")
+        logger.debug(f"MetagraphCase created successfully: {normal_case.name}")
     except Exception:
         logger.error("Error while creating MetagraphCase.", exc_info=True)
         return
-    logger.debug(f"Created MetagraphCase: {case_normal.name}")
+    logger.debug(f"Created MetagraphCase: {normal_case.name}")
 
     try:
         logger.info("Creating MetagraphCase.")
-        case_shifted = MetagraphCase(
+        shifted_case = MetagraphCase(
             shift_validator_id=args.shift_validator_id,
             name="Metagraph Based Dividends",
             metas=metas,
@@ -94,18 +94,18 @@ def run_single_scenario(args):
             introduce_shift=True,
             top_validators_ids=args.top_validators
         )
-        logger.debug(f"MetagraphCase created successfully: {case_shifted.name}")
+        logger.debug(f"MetagraphCase created successfully: {shifted_case.name}")
     except Exception:
         logger.error("Error while creating MetagraphCase.", exc_info=True)
         return
-    logger.debug(f"Created MetagraphCase: {case_shifted.name}")
+    logger.debug(f"Created MetagraphCase: {shifted_case.name}")
 
 
     try:
         logger.info(f"Running simulation")
         simulation_hyperparameters = SimulationHyperparameters()
 
-        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison_debug.html"
+        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison.html"
 
         yuma_params = YumaParams(bond_alpha=0.025, alpha_high=0.9, alpha_low=0.7)
         yuma4_liquid_params = replace(yuma_params, liquid_alpha=True)
@@ -117,12 +117,11 @@ def run_single_scenario(args):
         ]
 
         try:
-            chart_table = generate_metagraph_based_dividends(
+            chart_table = generate_metagraph_based_relative_dividends_comparisson_table(
                 yuma_versions=yuma_versions,
-                cases=[case_normal, case_shifted],
+                normal_case = normal_case,
+                shifted_case = shifted_case,
                 yuma_hyperparameters=simulation_hyperparameters,
-                metas=metas,
-                chart_types=["relative_dividends"],
                 draggable_table=args.draggable_table,
             )
 
