@@ -16,6 +16,7 @@ from yuma_simulation._internal.simulation_utils import (
     _generate_draggable_html_table,
     _generate_ipynb_table,
     run_simulation,
+    run_dynamic_simulation,
 )
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
@@ -165,6 +166,7 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
     normal_case: BaseCase,
     shifted_case: BaseCase,
     yuma_hyperparameters: SimulationHyperparameters,
+    epochs_padding: int,
     draggable_table: bool = False,
 ) -> HTML:
     """
@@ -201,14 +203,14 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
             final_case_name_shifted = f"{shifted_case.name} - {yuma_version}"
         
         # Run simulation for the normal case.
-        _, validators_relative_dividends_normal, _, _ = run_simulation(
+        _, validators_relative_dividends_normal, _, _ = run_dynamic_simulation(
             case=normal_case,
             yuma_version=yuma_version,
             yuma_config=yuma_config,
         )
         
         # Run simulation for the shifted case.
-        _, validators_relative_dividends_shifted, _, _ = run_simulation(
+        _, validators_relative_dividends_shifted, _, _ = run_dynamic_simulation(
             case=shifted_case,
             yuma_version=yuma_version,
             yuma_config=yuma_config,
@@ -220,6 +222,7 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
             case_name=final_case_name_normal,
             case=normal_case,
             num_epochs=normal_case.num_epochs,
+            epochs_padding=epochs_padding,
             to_base64=True,
         )
         
@@ -229,6 +232,7 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
             case_name=final_case_name_shifted,
             case=shifted_case,
             num_epochs=shifted_case.num_epochs,
+            epochs_padding=epochs_padding,
             to_base64=True,
         )
         
@@ -237,14 +241,26 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
             validators_relative_dividends_normal=validators_relative_dividends_normal,
             validators_relative_dividends_shifted=validators_relative_dividends_shifted,
             num_epochs=normal_case.num_epochs,  # Assuming both cases use the same number of epochs.
+            epochs_padding=epochs_padding,
             case=normal_case,
             to_base64=True,
+        )
+
+        chart_comparisson_stake_scaled = _plot_relative_dividends_comparisson(
+            validators_relative_dividends_normal=validators_relative_dividends_normal,
+            validators_relative_dividends_shifted=validators_relative_dividends_shifted,
+            num_epochs=normal_case.num_epochs,  # Assuming both cases use the same number of epochs.
+            epochs_padding=epochs_padding,
+            case=normal_case,
+            to_base64=True,
+            use_stakes=True,
         )
         
         # Append the three rows to this column.
         table_data[yuma_version].append(chart_normal)
         table_data[yuma_version].append(chart_shifted)
         table_data[yuma_version].append(chart_comparisson)
+        table_data[yuma_version].append(chart_comparisson_stake_scaled)
     
     # Define row ranges for the table (here each row represents a particular chart type).
     # In the generated table, row 0 = normal_case chart, row 1 = shifted_case chart,
@@ -253,6 +269,7 @@ def generate_metagraph_based_relative_dividends_comparisson_table(
         (0, 0, 0),
         (1, 1, 1),
         (2, 2, 2),
+        (3, 3, 3),
     ]
     
     summary_table = pd.DataFrame(table_data)

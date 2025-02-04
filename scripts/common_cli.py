@@ -92,4 +92,10 @@ def _create_common_parser():
         default="metagraph_subnets_config.json",
         help="Path to JSON file with multiple scenario definitions.",
     )
+    global_simulation_args.add_argument(
+        "--epochs-padding",
+        type=int,
+        default=0,
+        help="The first x epochs that are not plotted in the charts."
+    )
     return parser

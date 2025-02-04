@@ -44,7 +44,8 @@ def run_single_scenario(args):
     try:
         logger.info("Loading metagraphs.")
         metas = load_metas_from_directory(
-            f"./{args.metagraphs_dir}/subnet_{args.subnet_id}"
+            f"./{args.metagraphs_dir}/subnet_{args.subnet_id}",
+            epochs_num=args.epochs
         )
     except Exception:
         logger.error("Error while loading metagraphs", exc_info=True)

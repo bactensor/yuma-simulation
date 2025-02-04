@@ -122,6 +122,152 @@ def run_simulation(
     return dividends_per_validator, relative_dividends_per_validator, bonds_per_epoch, server_incentives_per_epoch
 
 
+def run_dynamic_simulation(
+    case: BaseCase,
+    yuma_version: str,
+    yuma_config: YumaConfig,
+) -> tuple[
+    dict[str, list[float]],
+    dict[str, list[float]],
+    list[torch.Tensor],
+    list[torch.Tensor],
+]:
+    """
+    Runs the Yuma simulation for a case whose validators change each epoch.
+    Instead of accumulating dividends keyed by a single static list of validators,
+    this version merges the per-epoch dividend data into dictionaries mapping each
+    validator to its time-series (with NaN for epochs in which a validator is absent).
+    Its used specifically for real metagraphs archived data.
+    """
+    dividends_per_epoch: list[dict[str, float]] = []
+    relative_dividends_per_epoch: list[dict[str, float]] = []
+    bonds_per_epoch: list[torch.Tensor] = []
+    server_incentives_per_epoch: list[torch.Tensor] = []
+
+    # These states are passed between epochs.
+    B_state: torch.Tensor | None = None
+    W_prev: torch.Tensor | None = None
+    server_consensus_weight: torch.Tensor | None = None
+
+    simulation_names = YumaSimulationNames()
+
+    for epoch in range(case.num_epochs):
+        # Retrieve the epoch-specific weights, stakes, and validator names.
+        W: torch.Tensor = case.weights_epochs[epoch]
+        S: torch.Tensor = case.stakes_epochs[epoch]
+        current_validators: list[str] = case.validators_epochs[epoch]
+        current_miner_indices: list[int] = case.miner_indices_epochs[epoch]
+
+        # Align previous bond state (B_state) if necessary
+        current_validator_count = len(current_validators)
+        current_miner_count = len(current_miner_indices)
+        if B_state is not None:
+            if B_state.shape[0] != current_validator_count or B_state.shape[1] != current_miner_count:
+                # Retrieve previous epoch indices if available.
+                if epoch > 0:
+                    old_validators: list[str] = case.validators_epochs[epoch - 1]
+                    old_miner_indices: list[int] = case.miner_indices_epochs[epoch - 1]
+                else:
+                    old_validators, old_miner_indices = [], []
+                # Create a new bond state tensor with the expected shape.
+                new_B_state = torch.zeros(
+                    current_validator_count,
+                    current_miner_count,
+                    dtype=B_state.dtype,
+                    device=B_state.device,
+                )
+                # For each cell in the new bond state...
+                for i, cur_validator in enumerate(current_validators):
+                    for j, cur_miner in enumerate(current_miner_indices):
+                        if epoch > 0 and (cur_validator in old_validators) and (cur_miner in old_miner_indices):
+                            old_i = old_validators.index(cur_validator)
+                            old_j = old_miner_indices.index(cur_miner)
+                            new_B_state[i, j] = B_state[old_i, old_j]
+                        else:
+                            new_B_state[i, j] = 0.0
+                B_state = new_B_state
+
+        # Calculate stake units.
+        stakes_tao: torch.Tensor = S * yuma_config.total_subnet_stake
+        stakes_units: torch.Tensor = stakes_tao / 1000.0
+
+        # Call the appropriate Yuma function based on the version.
+        if yuma_version in [simulation_names.YUMA, simulation_names.YUMA_LIQUID]:
+            result = Yuma(W=W, S=S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_ema_bond"]
+        elif yuma_version == simulation_names.YUMA2:
+            result = Yuma2(W=W, W_prev=W_prev, S=S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_ema_bond"]
+            W_prev = result["weight"]
+        elif yuma_version == simulation_names.YUMA3:
+            result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_bonds"]
+        elif yuma_version == simulation_names.YUMA31:
+            if B_state is not None and epoch == case.reset_bonds_epoch:
+                B_state[:, case.reset_bonds_index] = 0.0
+            result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_bonds"]
+        elif yuma_version == simulation_names.YUMA32:
+            if (
+                B_state is not None
+                and epoch == case.reset_bonds_epoch
+                and server_consensus_weight is not None
+                and server_consensus_weight[case.reset_bonds_index] == 0.0
+            ):
+                B_state[:, case.reset_bonds_index] = 0.0
+            result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_bonds"]
+            server_consensus_weight = result["server_consensus_weight"]
+        elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
+            if (
+                B_state is not None
+                and epoch == case.reset_bonds_epoch
+                and server_consensus_weight is not None
+                and server_consensus_weight[case.reset_bonds_index] == 0.0
+            ):
+                B_state[:, case.reset_bonds_index] = 0.0
+            result = Yuma4(W, S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_bonds"]
+            server_consensus_weight = result["server_consensus_weight"]
+        elif yuma_version == "Yuma 0 (subtensor)":
+            result = YumaRust(W, S, B_old=B_state, config=yuma_config)
+            B_state = result["validator_ema_bond"]
+        else:
+            raise ValueError("Invalid Yuma function.")
+
+        D_normalized: torch.Tensor = result["validator_reward_normalized"]
+
+        E_i: torch.Tensor = yuma_config.validator_emission_ratio * D_normalized
+        validator_emission: torch.Tensor = E_i * yuma_config.total_epoch_emission
+
+        # Build dictionaries for this epoch's dividends.
+        dividends_this_epoch: dict[str, float] = {}
+        for i, validator in enumerate(current_validators):
+            stake_unit = float(stakes_units[i].item())
+            validator_emission_i = float(validator_emission[i].item())
+            dividend_per_1000_tao = (
+                validator_emission_i / stake_unit if stake_unit > 1e-6 else 0.0
+            )
+            dividends_this_epoch[validator] = dividend_per_1000_tao
+
+        bonds_per_epoch.append(B_state.clone())
+        server_incentives_per_epoch.append(result["server_incentive"])
+
+        S_norm = S / S.sum()
+        relative_dividends_this_epoch: dict[str, float] = {}
+        for i, validator in enumerate(current_validators):
+            relative_dividends_this_epoch[validator] = D_normalized[i].item() - S_norm[i].item()
+
+        dividends_per_epoch.append(dividends_this_epoch)
+        relative_dividends_per_epoch.append(relative_dividends_this_epoch)
+
+    # Merge the per-epoch dictionaries
+    merged_dividends = pd.DataFrame(dividends_per_epoch).to_dict(orient="list")
+    merged_relative_dividends = pd.DataFrame(relative_dividends_per_epoch).to_dict(orient="list")
+
+    return (merged_dividends, merged_relative_dividends, bonds_per_epoch, server_incentives_per_epoch)
+
+
 def _generate_draggable_html_table(
     table_data: dict[str, list[str]],
     summary_table: pd.DataFrame,
@@ -257,7 +403,6 @@ def _generate_draggable_html_table(
 
     return custom_css_js + html_table
 
-
 def _generate_ipynb_table(
     table_data: dict[str, list[str]],
     summary_table: pd.DataFrame,
@@ -325,7 +470,6 @@ def _generate_ipynb_table(
     </div>
     """
     return custom_css + html_table
-
 
 def generate_total_dividends_table(
     cases: list[BaseCase],
@@ -422,18 +566,22 @@ def generate_metagraph_case_shifted_validator_comparison_table(
     """
     Compares the *relative dividends* of a single validator (often the base_validator)
     across two different MetagraphCase objects: normal vs. shifted,
-    for multiple Yuma versions. Each Yuma version produces two columns:
+    for multiple Yuma versions. For each Yuma version the table will include three columns:
       - Normal_<version>
       - Shifted_<version>
-
+      - Comparison_<version>
+    
+    The "Comparison" column is computed, for each epoch, as the difference between the
+    shifted and normal dividends divided by the normalized stake (from case_normal). The
+    per-window (frame) value is then the average of these per-epoch comparisons.
+    
     Example final columns for 2 Yuma versions:
-      Window | Normal_v1 | Shifted_v1 | Normal_v2 | Shifted_v2
-      --------------------------------------------------------
-      1-20   | +10.00%   | +20.00%    | -5.00%    | +3.00%
-      21-40  | +15.00%   | +25.00%    | -2.00%    | +1.00%
-      Total  | +12.50%   | +22.50%    | -3.50%    | +2.00%
+      Window | Normal_v1 | Shifted_v1 | Comparison_v1 | Normal_v2 | Shifted_v2 | Comparison_v2
+      ---------------------------------------------------------------------------------------
+      1-20   | +10.00%   | +20.00%    | +5.00%        | -5.00%    | +3.00%     | +4.00%
+      21-40  | +15.00%   | +25.00%    | +6.00%        | -2.00%    | +1.00%     | +3.00%
+      Total  | +12.50%   | +22.50%    | +5.50%        | -3.50%    | +2.00%     | +3.50%
     """
-
     rows = []
 
     version_frames = {}
@@ -441,53 +589,80 @@ def generate_metagraph_case_shifted_validator_comparison_table(
     validator_normal = case_normal.base_validator
     validator_shifted = case_shifted.base_validator
 
+    df_stakes = case_normal.stakes_dataframe
+    stakes_series = df_stakes[validator_normal].to_list()
+
     for (yuma_version_name, yuma_params) in yuma_versions:
         single_config = YumaConfig(
             simulation=simulation_hyperparameters,
             yuma_params=yuma_params,
         )
 
-        _, relative_dividends_normal, _, _ = run_simulation(
+        # Run simulations for both normal and shifted cases.
+        _, relative_dividends_normal, _, _ = run_dynamic_simulation(
             case=case_normal,
             yuma_version=yuma_version_name,
             yuma_config=single_config,
         )
-        _, relative_dividends_shifted, _, _ = run_simulation(
+        _, relative_dividends_shifted, _, _ = run_dynamic_simulation(
             case=case_shifted,
             yuma_version=yuma_version_name,
             yuma_config=single_config,
         )
 
+        # Extract the dividend series for the base validator.
         divs_normal = relative_dividends_normal.get(validator_normal, [])
         divs_shifted = relative_dividends_shifted.get(validator_shifted, [])
 
-        normal_frames, _ = _calculate_total_dividends_with_frames(
+
+        comparison_series = []
+        for i in range(len(stakes_series)):
+            stake_val = stakes_series[i]
+            if stake_val is None or stake_val == 0:
+                comp = 0.0
+            else:
+                comp = (divs_shifted[i] - divs_normal[i]) / stake_val
+            comparison_series.append(comp)
+
+
+        normal_frames, total_normal_divs = _calculate_total_dividends_with_frames(
             validator_dividends=divs_normal,
             num_epochs=case_normal.num_epochs,
             epochs_window=epochs_window,
             use_relative=True
         )
-        shifted_frames, _ = _calculate_total_dividends_with_frames(
+        shifted_frames, total_shifted_divs = _calculate_total_dividends_with_frames(
             validator_dividends=divs_shifted,
             num_epochs=case_shifted.num_epochs,
             epochs_window=epochs_window,
             use_relative=True
         )
+        comparison_frames, total_comparison_divs = _calculate_total_dividends_with_frames(
+            validator_dividends=comparison_series,
+            num_epochs=case_normal.num_epochs,
+            epochs_window=epochs_window,
+            use_relative=True
+        )
 
-        num_frames = min(len(normal_frames), len(shifted_frames))
         version_frames[yuma_version_name] = {
             "normal_frames": normal_frames,
             "shifted_frames": shifted_frames,
-            "num_frames": num_frames
+            "comparison_frames": comparison_frames,
+            "num_frames": len(comparison_frames),
+            "total_normal": total_normal_divs,
+            "total_shifted": total_shifted_divs,
+            "total_comparison": total_comparison_divs,
         }
 
         version_collector[yuma_version_name] = {
             "normal_values": [],
-            "shifted_values": []
+            "shifted_values": [],
+            "comparison_values": []
         }
 
     max_frames = max(vdata["num_frames"] for vdata in version_frames.values()) if version_frames else 0
 
+    # Build rows for each frame.
     for i in range(max_frames):
         start_epoch = i * epochs_window + 1
         end_epoch = (i + 1) * epochs_window
@@ -502,41 +677,37 @@ def generate_metagraph_case_shifted_validator_comparison_table(
             if i < vdata["num_frames"]:
                 avg_normal = vdata["normal_frames"][i]
                 avg_shifted = vdata["shifted_frames"][i]
+                avg_comparison = vdata["comparison_frames"][i]
             else:
                 avg_normal = 0.0
                 avg_shifted = 0.0
+                avg_comparison = 0.0
 
+            # Format values as percentages.
             normal_str = f"{avg_normal * 100:+.2f}%"
             shifted_str = f"{avg_shifted * 100:+.2f}%"
+            comparison_str = f"{avg_comparison * 100:+.2f}%"
 
             version_collector[yuma_version_name]["normal_values"].append(avg_normal)
             version_collector[yuma_version_name]["shifted_values"].append(avg_shifted)
+            version_collector[yuma_version_name]["comparison_values"].append(avg_comparison)
 
             row_data[f"Normal_{yuma_version_name}"] = normal_str
             row_data[f"Shifted_{yuma_version_name}"] = shifted_str
+            row_data[f"Comparison_{yuma_version_name}"] = comparison_str
 
         rows.append(row_data)
 
+    # Build the Total row using the overall totals returned by the helper function.
     total_row = {"Window": "Total"}
     for (yuma_version_name, _) in yuma_versions:
-        normal_list = version_collector[yuma_version_name]["normal_values"]
-        shifted_list = version_collector[yuma_version_name]["shifted_values"]
+        total_normal = version_frames[yuma_version_name]["total_normal"]
+        total_shifted = version_frames[yuma_version_name]["total_shifted"]
+        total_comparison = version_frames[yuma_version_name]["total_comparison"]
 
-        if normal_list:
-            avg_normal_across_frames = sum(normal_list) / len(normal_list)
-        else:
-            avg_normal_across_frames = 0.0
-
-        if shifted_list:
-            avg_shifted_across_frames = sum(shifted_list) / len(shifted_list)
-        else:
-            avg_shifted_across_frames = 0.0
-
-        total_normal_str = f"{avg_normal_across_frames * 100:+.2f}%"
-        total_shifted_str = f"{avg_shifted_across_frames * 100:+.2f}%"
-
-        total_row[f"Normal_{yuma_version_name}"] = total_normal_str
-        total_row[f"Shifted_{yuma_version_name}"] = total_shifted_str
+        total_row[f"Normal_{yuma_version_name}"] = f"{total_normal * 100:+.2f}%"
+        total_row[f"Shifted_{yuma_version_name}"] = f"{total_shifted * 100:+.2f}%"
+        total_row[f"Comparison_{yuma_version_name}"] = f"{total_comparison * 100:+.2f}%"
 
     rows.append(total_row)
 
@@ -546,6 +717,7 @@ def generate_metagraph_case_shifted_validator_comparison_table(
     for (yuma_version_name, _) in yuma_versions:
         column_order.append(f"Normal_{yuma_version_name}")
         column_order.append(f"Shifted_{yuma_version_name}")
+        column_order.append(f"Comparison_{yuma_version_name}")
 
     column_order = [c for c in column_order if c in df.columns]
     df = df[column_order]

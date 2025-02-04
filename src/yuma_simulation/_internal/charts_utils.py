@@ -47,11 +47,12 @@ def _calculate_total_dividends(
 
     return total_dividends, percentage_diff_vs_base
 
+
 def _calculate_total_dividends_with_frames(
     validator_dividends: list[float],
     num_epochs: int,
     epochs_window: int,
-    use_relative: bool = False  # <--- NEW PARAMETER
+    use_relative: bool = False
 ) -> tuple[list[float], float]:
     """
     Returns a tuple of:
@@ -101,7 +102,6 @@ def _calculate_total_dividends_with_frames(
         chunk = truncated_divs[start_idx:end_idx]
 
         if use_relative:
-            # If the chunk is empty or small, avoid division by zero
             val = sum(chunk) / len(chunk)
         else:
             val = sum(chunk)
@@ -121,7 +121,7 @@ def _plot_dividends(
     validators: list[str],
     dividends_per_validator: dict[str, list[float]],
     case_name: str,
-    case: BaseCase,  # or MetagraphCase if you prefer
+    case: BaseCase,
     to_base64: bool = False,
 ) -> str | None:
     """
@@ -229,16 +229,26 @@ def _plot_relative_dividends(
     case_name: str,
     case: BaseCase,
     num_epochs: int,
+    epochs_padding: int = 0,
     to_base64: bool = False
 ) -> str | None:
     """
-    Plots relative dividend values (can be > 0 or < 0) for a set of validators over epochs,
+    Plots relative dividend values (which may be > 0 or < 0) for a set of validators over epochs,
     using percentages on the Y-axis. A horizontal line at y=0% indicates the 'neutral' line.
+    
+    If a validator is missing (e.g. deregistered) in a particular epoch, its value for that epoch 
+    is set to NaN so that the plotted line is broken. When the validator is present again, the line resumes.
+    
+    The first `epochs_padding` records are omitted from the plot.
     """
-
     plt.close("all")
-    # fig, ax = plt.subplots(figsize=(14 * 3, 6 * 3))
-    fig, ax = plt.subplots(figsize=(14, 6))
+    # Adjust the number of epochs to be plotted.
+    plot_epochs = num_epochs - epochs_padding
+    if plot_epochs <= 0:
+        print("Epochs padding is too large relative to num_epochs. Nothing to plot.")
+        return None
+
+    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
 
     if not validators_relative_dividends:
         print("No validator data to plot.")
@@ -246,11 +256,12 @@ def _plot_relative_dividends(
 
     all_validators = list(validators_relative_dividends.keys())
 
+    # Use top validators (and base validator) if available.
     top_vals = getattr(case, "top_validators_hotkeys", [])
     if top_vals:
         plot_validator_names = top_vals.copy()
     else:
-        plot_validator_names = all_validators
+        plot_validator_names = all_validators.copy()
 
     if case.base_validator not in plot_validator_names:
         plot_validator_names.append(case.base_validator)
@@ -259,20 +270,31 @@ def _plot_relative_dividends(
         print("No matching validators to plot.")
         return None
 
-    x = np.arange(num_epochs)
-
+    # Use the adjusted number of epochs.
+    x = np.arange(plot_epochs)
     validator_styles = _get_validator_styles(all_validators)
 
     for idx, validator in enumerate(plot_validator_names):
-        dividends = validators_relative_dividends[validator]
-        if len(dividends) == 0:
+        # Retrieve dividend series for this validator.
+        dividends = validators_relative_dividends.get(validator, [])
+        # Ensure there are enough data points to slice.
+        if len(dividends) <= epochs_padding:
             continue
+
+        # Slice off the first epochs_padding records.
+        dividends = dividends[epochs_padding:]
+
+        # Replace missing values (None) with np.nan.
+        dividends = np.array(
+            [d if d is not None else np.nan for d in dividends],
+            dtype=float,
+        )
 
         delta = 0.05
         x_shifted = x + idx * delta
 
-        total_decimal = sum(dividends) / len(dividends)  # average
-        sign_str = f"{total_decimal * 100:+.5f}%"
+        total_mean = _compute_mean(dividends)
+        sign_str = f"{total_mean * 100:+.5f}%"
         label = f"{validator}: total = {sign_str}"
 
         linestyle, marker, markersize, markeredgewidth = validator_styles.get(
@@ -288,18 +310,16 @@ def _plot_relative_dividends(
             markeredgewidth=markeredgewidth,
             markersize=markersize,
             linestyle=linestyle,
-            # linewidth=2
         )
 
     ax.axhline(y=0, color="black", linewidth=1, linestyle="--", alpha=0.7)
 
-    _set_default_xticks(ax, num_epochs)
+    _set_default_xticks(ax, plot_epochs)
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Relative Dividend (%)")
     ax.set_title(case_name)
     ax.grid(True)
-    # ax.legend(fontsize=14, frameon=True, framealpha=1, borderpad=1.2)
     ax.legend()
 
     def to_percent(y, _):
@@ -310,96 +330,122 @@ def _plot_relative_dividends(
 
     if to_base64:
         return _plot_to_base64()
-    else:
+    else: 
         plt.show()
         return None
+
 
 def _plot_relative_dividends_comparisson(
     validators_relative_dividends_normal: dict[str, list[float]],
     validators_relative_dividends_shifted: dict[str, list[float]],
-    case,  # A BaseCase instance to extract top validators and base validator.
+    case: BaseCase,
     num_epochs: int,
-    to_base64: bool = False
+    epochs_padding: int = 0,
+    to_base64: bool = False,
+    use_stakes: bool = False
 ) -> str | None:
     """
-    Plots a comparisson of relative dividends for each validator.
-    
-    For each validator, the function computes:
-    
-        result = -1 * ( normal - shifted ) = shifted - normal
-    
-    Only the validators specified in the case's `top_validators_hotkeys` (plus the `base_validator`)
-    are plotted. The resulting chart has the same style and axes configuration as _plot_relative_dividends.
-    
-    Parameters:
-      - validators_relative_dividends_normal: dict mapping validator names to list of floats (normal case).
-      - validators_relative_dividends_shifted: dict mapping validator names to list of floats (shifted case).
-      - case: The case object (e.g. normal_case) that provides attributes such as 
-              `top_validators_hotkeys` and `base_validator`.
-      - normal_case_name: A string used for the title to identify the normal case.
-      - shifted_case_name: A string used for the title to identify the shifted case.
-      - num_epochs: Number of epochs (length of the dividends lists).
-      - to_base64: If True, returns the plot as a base64-encoded string; otherwise, displays the plot.
-      
-    Returns:
-      A base64 string of the plot if `to_base64` is True; otherwise, None.
+    Plots a comparison of dividends for each validator.
+    The element-wise differences are plotted (shifted - normal), and the legend shows
+    the difference in the means (displayed as a percentage).
+
+    If 'use_stakes' is True and the case provides a stakes_dataframe property,
+    then each difference is divided by the normalized stake for that validator at that epoch.
+    The mean is recomputed from the newly calculated differences.
+
+    The first `epochs_padding` records are omitted from the plot.
     """
     plt.close("all")
-    fig, ax = plt.subplots(figsize=(14, 6))
-    
+    # Adjust the number of epochs to be plotted.
+    plot_epochs = num_epochs - epochs_padding
+    if plot_epochs <= 0:
+        print("Epochs padding is too large relative to num_epochs. Nothing to plot.")
+        return None
+
+    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
+
     if not validators_relative_dividends_normal:
         print("No validator data to plot for the normal case.")
         return None
 
-    # Determine the validators to plot.
     all_validators = list(validators_relative_dividends_normal.keys())
-    
+
     # Use the case's top validators if available; otherwise, plot all.
     top_vals = getattr(case, "top_validators_hotkeys", [])
     if top_vals:
         plot_validator_names = top_vals.copy()
     else:
         plot_validator_names = all_validators.copy()
-    
-    # Ensure that the base validator is included.
+
+    # Ensure that the base (shifted) validator is included.
     base_validator = getattr(case, "base_validator", None)
     if base_validator and base_validator not in plot_validator_names:
         plot_validator_names.append(base_validator)
-    
-    x = np.arange(num_epochs)
-    
-    # Get styles for all validators (assuming _get_validator_styles exists).
+
+    x = np.arange(plot_epochs)
     validator_styles = _get_validator_styles(all_validators)
-    
+
+    # Retrieve stakes DataFrame if stakes normalization is requested.
+    if use_stakes and hasattr(case, "stakes_dataframe"):
+        df_stakes = case.stakes_dataframe
+    else:
+        df_stakes = None
+
     for idx, validator in enumerate(plot_validator_names):
         # Retrieve dividend series from both dictionaries.
         normal_dividends = validators_relative_dividends_normal.get(validator, [])
         shifted_dividends = validators_relative_dividends_shifted.get(validator, [])
-        
-        # Skip plotting if data is missing.
+
+        # Skip plotting if one of the series is missing or not long enough.
         if not normal_dividends or not shifted_dividends:
             continue
-        
-        # Compute the comparisson series:
-        #   diff = -1 * (normal - shifted) = shifted - normal
-        diff = [shifted - normal for normal, shifted in zip(normal_dividends, shifted_dividends)]
-        
+        if len(normal_dividends) <= epochs_padding or len(shifted_dividends) <= epochs_padding:
+            continue
+
+        # Slice off the first epochs_padding records.
+        normal_dividends = normal_dividends[epochs_padding:]
+        shifted_dividends = shifted_dividends[epochs_padding:]
+
+        # Replace missing values (None) with np.nan.
+        normal_dividends = np.array(
+            [d if d is not None else np.nan for d in normal_dividends],
+            dtype=float,
+        )
+        shifted_dividends = np.array(
+            [d if d is not None else np.nan for d in shifted_dividends],
+            dtype=float,
+        )
+
+        relative_diff = shifted_dividends - normal_dividends
+
+        if df_stakes is not None and validator in df_stakes.columns:
+            stakes_series = df_stakes[validator].to_numpy()
+            # Ensure stakes series is sliced to match the dividends.
+            if len(stakes_series) > epochs_padding:
+                stakes_series = stakes_series[epochs_padding:]
+            else:
+                stakes_series = np.full_like(relative_diff, np.nan)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                relative_diff = np.where(stakes_series != 0, relative_diff / stakes_series, np.nan)
+            mean_difference = _compute_mean(relative_diff) * 100
+        else:
+            normal_mean = _compute_mean(normal_dividends)
+            shifted_mean = _compute_mean(shifted_dividends)
+            mean_difference = (shifted_mean - normal_mean) * 100
+
         delta = 0.05
         x_shifted = x + idx * delta
-        
-        # Compute the average difference and format it as a percentage.
-        total_decimal = sum(diff) / len(diff)
-        sign_str = f"{total_decimal * 100:+.5f}%"
-        label = f"{validator}: total = {sign_str}"
-        
-        # Get style parameters for this validator.
+
+        sign_str = f"{mean_difference:+.5f}%"
+        label = f"{validator}: mean difference/stake = {sign_str}" if use_stakes else f"{validator}: mean difference = {sign_str}"
+
         linestyle, marker, markersize, markeredgewidth = validator_styles.get(
             validator, ("-", "o", 5, 1)
         )
-        
+
         ax.plot(
             x_shifted,
-            diff,
+            relative_diff,
             label=label,
             alpha=0.7,
             marker=marker,
@@ -407,26 +453,23 @@ def _plot_relative_dividends_comparisson(
             markersize=markersize,
             linestyle=linestyle,
         )
-    
-    # Draw a horizontal line at y=0.
+
     ax.axhline(y=0, color="black", linewidth=1, linestyle="--", alpha=0.7)
-    
-    # Set x-axis ticks (assuming _set_default_xticks exists).
-    _set_default_xticks(ax, num_epochs)
-    
+
+    _set_default_xticks(ax, plot_epochs)
+
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Relative Dividend (%)")
-    ax.set_title(f"Comparisson (shifted - normal)")
+    ax.set_ylabel("Absolute Difference")
+    ax.set_title("Comparison (shifted - normal) scaled by stake" if use_stakes else "Comparison (shifted - normal)")
     ax.grid(True)
     ax.legend()
-    
-    # Format y-axis ticks as percentages.
+
     def to_percent(y, _):
         return f"{y * 100:.1f}%"
     ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-    
+
     plt.subplots_adjust(hspace=0.3)
-    
+
     if to_base64:
         return _plot_to_base64()
     else:
@@ -707,3 +750,10 @@ def _get_validator_styles(
         validator: combined_styles[idx % len(combined_styles)]
         for idx, validator in enumerate(validators)
     }
+
+
+def _compute_mean(dividends: np.ndarray) -> float:
+    """Computes the mean over valid epochs where the validator is present."""
+    if np.all(np.isnan(dividends)):
+        return 0.0
+    return np.nanmean(dividends)

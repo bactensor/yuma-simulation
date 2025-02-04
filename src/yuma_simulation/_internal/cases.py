@@ -1,4 +1,5 @@
 import torch
+import pandas as pd
 from dataclasses import dataclass, field
 
 # Registry to store case classes
@@ -32,20 +33,54 @@ class BaseCase:
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
-        return [torch.tensor([0.8, 0.1, 0.1])] * self.num_epochs
+        """
+        Default stakes for each epoch. Here we assume default stakes for validators only,
+        and then we use build_full_stakes() to pad zeros for servers.
+        """
+        stakes_epochs_list = []
+        # Default stakes for validators (e.g., 3 validators)
+        default_stakes = torch.tensor([0.8, 0.1, 0.1])
+        for _ in range(self.num_epochs):
+            stakes_epochs_list.append(self.build_full_stakes(default_stakes))
+        return stakes_epochs_list
 
     def __post_init__(self):
         if self.base_validator not in self.validators:
             raise ValueError(
                 f"base_validator '{self.base_validator}' must be in validators list."
             )
+        
+    def build_full_weights(self, W_base: torch.Tensor) -> torch.Tensor:
+        """
+        Given a weight matrix for validators (of shape [n_validators, n_servers]),
+        embed it into a full square matrix of shape 
+          (n_validators + n_servers) x (n_validators + n_servers)
+        so that the validators (rows) vote only in the server columns.
+        """
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
+        total = n_validators + n_servers
+        W_full = torch.zeros(total, total)
+        # Place the base matrix in the upper-right block.
+        W_full[:n_validators, n_validators:] = W_base
+        return W_full
+
+    def build_full_stakes(self, stakes_valid: torch.Tensor) -> torch.Tensor:
+        """
+        Given a stakes vector for validators (of shape [n_validators]),
+        append zeros for the servers (miners) so that the resulting tensor has shape
+          (n_validators + n_servers,)
+        """
+        n_servers = len(self.servers)
+        zeros = torch.zeros(n_servers, dtype=stakes_valid.dtype)
+        return torch.cat([stakes_valid, zeros])
 
 
 @dataclass
 class MetagraphCase(BaseCase):
     """
-    A 'Case' that filters out validators with S > 0 and provides weights and stakes
-    only for those validators across all fetched metagraphs.
+    A 'Case' that, for each metagraph (epoch), filters validators with S >= 1000 and
+    provides weights and stakes only for those validators.
     """
 
     introduce_shift: bool = False
@@ -54,118 +89,166 @@ class MetagraphCase(BaseCase):
     num_epochs: int = 40
 
     name: str = "Dynamic Metagraph Case"
-    metas: list[dict] = field(
-        default_factory=list
-    )  # List of metagraph dicts: { "S": ..., "W": ..., ... }
+    metas: list[dict] = field(default_factory=list)  # List of metagraph dicts: { "S": ..., "W": ..., "hotkeys": ... }
 
     validators: list[str] = field(default_factory=list)
     top_validators_ids: list[int] = field(default_factory=list)
     top_validators_hotkeys: list[str] = field(default_factory=list)
 
-    valid_indices: list[int] = field(default_factory=list, init=False)
-    server_limit: int = 256  # Limit the number of servers (columns in W)
-    validators_limit: int = 256  # Limit the number of validators (columns in S)
+    # Limits for filtering (columns in W or entries in S)
+    server_limit: int = 256
+    validators_limit: int = 256
+
+    # These will store per-epoch filtering information.
+    valid_indices_epochs: list[list[int]] = field(default_factory=list, init=False)
+    miner_indices_epochs: list[list[int]] = field(default_factory=list, init=False)
+    validators_epochs: list[list[str]] = field(default_factory=list, init=False)
 
     def __post_init__(self):
         """
-        Inspect the first metagraph to identify validators with S > 0.
+        Process each metagraph to compute epoch-specific valid indices, miner indices,
+        and the corresponding validators (using the "hotkeys" field). The first epoch is
+        then used to set parameters such as base_validator and top_validators.
         """
         if len(self.metas) == 0:
             raise ValueError("No metagraphs provided.")
 
-        # Convert NumPy arrays -> torch.Tensor for all metas
+        # Ensure all metas have torch.Tensor values for "S" and "W"
         for i, meta in enumerate(self.metas):
             if "S" in meta and not isinstance(meta["S"], torch.Tensor):
                 meta["S"] = torch.tensor(meta["S"])
-
             if "W" in meta and not isinstance(meta["W"], torch.Tensor):
                 meta["W"] = torch.tensor(meta["W"])
 
         if self.introduce_shift:
-            self.name = self.name + " - shifted"
+            self.name += " - shifted"
 
-        # Process the first meta for valid indices
-        meta_0 = self.metas[0]
-        stakes_tensor = meta_0["S"]  # shape [n_validators]
+        # For each metagraph (epoch), compute the validators and miner indices.
+        for idx, meta in enumerate(self.metas):
+            stakes_tensor = meta["S"]  # shape [n_validators]
+            mask = stakes_tensor >= 1000
+            neg_mask = ~mask
 
-        # Create mask and limit valid indices for testing purposes
-        mask = stakes_tensor >= 1000
-        neg_mask = ~mask
+            valid_indices = mask.nonzero(as_tuple=True)[0].tolist()
+            valid_indices = valid_indices[: self.validators_limit]
 
-        self.valid_indices = mask.nonzero(as_tuple=True)[0].tolist()
-        self.valid_indices = self.valid_indices[: self.validators_limit]
+            miner_indices = neg_mask.nonzero(as_tuple=True)[0].tolist()
+            miner_indices = miner_indices[: self.server_limit]
 
-        self.miner_indices = neg_mask.nonzero(as_tuple=True)[0].tolist()
-        self.miner_indices = self.miner_indices[: self.server_limit]
+            if not valid_indices:
+                raise ValueError(f"No validators have S >= 1000 in metagraph (epoch) {idx}.")
 
-        if not self.valid_indices:
-            raise ValueError("No validators have S > 0 in the first metagraph.")
+            self.valid_indices_epochs.append(valid_indices)
+            self.miner_indices_epochs.append(miner_indices)
+            # Get the list of validator hotkeys for this epoch.
+            try:
+                validators_for_epoch = [meta["hotkeys"][uid] for uid in valid_indices]
+            except (KeyError, IndexError) as e:
+                raise ValueError(f"Error retrieving hotkeys for epoch {idx}: {e}")
+            self.validators_epochs.append(validators_for_epoch)
 
-        # Generate validator names
-        if not self.validators:
-            self.validators = [meta_0["hotkeys"][uid] for uid in self.valid_indices]
-
+        # For base_validator and top_validators, we use the first epoch as reference.
+        first_valid_indices = self.valid_indices_epochs[0]
+        first_validators = self.validators_epochs[0]
         try:
-            row_in_valid_indices = self.valid_indices.index(self.shift_validator_id)
-            self.base_validator = self.validators[row_in_valid_indices]
+            row_in_valid_indices = first_valid_indices.index(self.shift_validator_id)
+            self.base_validator = first_validators[row_in_valid_indices]
         except ValueError:
             raise ValueError(
-                "The shifted validator id is not present in the list of valid validator id's"
+                "The shifted validator id is not present in the list of valid validator ids in epoch 0."
             )
 
-        # Convert top_validators_ids -> top_validators_hotkeys
+        # Process top validators based on the first epoch.
         self.top_validators_hotkeys = []
         for tv_id in self.top_validators_ids:
             try:
-                row_in_valid_indices = self.valid_indices.index(tv_id)
-                hotkey = self.validators[row_in_valid_indices]
+                row_in_valid_indices = first_valid_indices.index(tv_id)
+                hotkey = first_validators[row_in_valid_indices]
                 self.top_validators_hotkeys.append(hotkey)
             except ValueError:
                 raise ValueError(
-                    f"Top validator id {tv_id} is not present in valid validator IDs."
+                    f"Top validator id {tv_id} is not present in the valid validator IDs in epoch 0."
                 )
+
+        if not self.validators:
+            self.validators = first_validators
 
         super().__post_init__()
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         """
-        Return filtered weights for valid validators.
+        Return a list of weight matrices (one per epoch) that have been filtered according
+        to that epoch's valid (validators) and miner indices. If introduce_shift is enabled,
+        then for each epoch (where possible) the row corresponding to shift_validator_id is
+        replaced by the corresponding row values from the subsequent epoch, but only for
+        miner columns that are common between the two epochs.
         """
         Ws = []
-        for meta in self.metas:
+        for i, meta in enumerate(self.metas):
             W_full = meta["W"]
-            W_valid = W_full[self.valid_indices, :]
-            W_valid = W_valid[:, self.miner_indices]
-
+            valid_indices = self.valid_indices_epochs[i]
+            miner_indices = self.miner_indices_epochs[i]
+            # Filter rows (validators) and columns (miners)
+            W_valid = W_full[valid_indices, :][:, miner_indices]
             Ws.append(W_valid)
 
         if not self.introduce_shift:
             return Ws
 
-        try:
-            row_in_W_valid = self.valid_indices.index(self.shift_validator_id)
-        except ValueError:
-            return Ws
+        # Apply shifting across epochs.
+        for e in range(len(Ws) - 1):
+            valid_indices_current = self.valid_indices_epochs[e]
+            valid_indices_next = self.valid_indices_epochs[e + 1]
 
-        for e in range(1, len(Ws)):
-            # The row in epoch e is replaced by epoch e-1
-            if e + 1 < len(Ws):
-                Ws[e][row_in_W_valid, :] = Ws[e + 1][row_in_W_valid, :]
+            if (self.shift_validator_id in valid_indices_current and
+                    self.shift_validator_id in valid_indices_next):
+                row_current = valid_indices_current.index(self.shift_validator_id)
+                row_next = valid_indices_next.index(self.shift_validator_id)
 
+                miner_indices_current = self.miner_indices_epochs[e]
+                miner_indices_next = self.miner_indices_epochs[e + 1]
+
+                common_miners = set(miner_indices_current).intersection(miner_indices_next)
+                for miner in common_miners:
+                    col_current = miner_indices_current.index(miner)
+                    col_next = miner_indices_next.index(miner)
+                    Ws[e][row_current, col_current] = Ws[e + 1][row_next, col_next]
         return Ws
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
         """
-        Return filtered stakes for valid validators across all epochs (metagraphs).
+        Return a list of stakes tensors (one per epoch) filtered to include only the valid
+        validators as determined for each epoch.
         """
         Ss = []
-        for meta in self.metas:
-            S_full = meta["S"]  # shape [n_validators]
-            S_valid = S_full[self.valid_indices]
+        for i, meta in enumerate(self.metas):
+            S_full = meta["S"]
+            valid_indices = self.valid_indices_epochs[i]
+            S_valid = S_full[valid_indices]
             Ss.append(S_valid)
         return Ss
+
+    @property
+    def stakes_dataframe(self) -> pd.DataFrame:
+        """
+        Convert the per-epoch stakes (torch.Tensors) into a DataFrame.
+        Each row corresponds to an epoch and each column to a validator hotkey.
+        Stakes for each epoch are normalized so that they sum to 1.
+        Missing values (when a validator is not present in an epoch) will be NaN.
+        """
+        stakes_dict_list = []
+        for epoch, stakes_tensor in enumerate(self.stakes_epochs):
+            validators = self.validators_epochs[epoch]
+            stakes_list = stakes_tensor.tolist()
+            stakes_dict = {validator: stake for validator, stake in zip(validators, stakes_list)}
+            stakes_dict_list.append(stakes_dict)
+
+        df_stakes = pd.DataFrame(stakes_dict_list)
+        df_stakes.index.name = "epoch"
+        df_stakes = df_stakes.div(df_stakes.sum(axis=1), axis=0)
+        return df_stakes
 
 
 def create_case(case_name: str, **kwargs) -> BaseCase:
@@ -191,23 +274,24 @@ class Case1(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_1 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 0] = 1.0  # Validator B -> Server 1
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 0] = 1.0
             elif epoch == 2:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
-            weights_epochs_case_1.append(W)
+                W_base[:, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_1.append(W_full)
         return weights_epochs_case_1
 
 
@@ -227,23 +311,24 @@ class Case2(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_2 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             elif epoch == 2:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
-            weights_epochs_case_2.append(W)
+                W_base[:, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_2.append(W_full)
         return weights_epochs_case_2
 
 
@@ -263,23 +348,24 @@ class Case3(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_3 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             elif epoch == 2:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
-            weights_epochs_case_3.append(W)
+                W_base[:, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_3.append(W_full)
         return weights_epochs_case_3
 
 
@@ -299,19 +385,20 @@ class Case4(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_4 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # All validators support Server 1
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 0] = 1.0  # Validator B -> Server 1
-                W[2, 0] = 1.0  # Validator C -> Server 1
-            if epoch >= 1:
-                # All validators support Server 2
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
-            weights_epochs_case_4.append(W)
+                W_base[0, 0] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 0] = 1.0
+            elif epoch >= 1:
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_4.append(W_full)
         return weights_epochs_case_4
 
 
@@ -334,34 +421,34 @@ class Case5(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_5 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif epoch == 2:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif 3 <= epoch <= 20:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
+                W_base[:, 1] = 1.0
             elif epoch == 21:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 0] = 1.0  # Validator B -> Server 1
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 1] = 1.0
             elif epoch == 22:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 0] = 1.0  # Validator B -> Server 1
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 0] = 1.0  # All validators -> Server 1
-            weights_epochs_case_5.append(W)
+                W_base[:, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_5.append(W_full)
         return weights_epochs_case_5
 
 
@@ -384,27 +471,26 @@ class Case6(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_6 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # All validators support Server 1
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                # Validator B switches to Server 2
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             elif epoch == 2:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             elif 3 <= epoch <= 20:
-                # All validators support Server 2
-                W[:, 1] = 1.0
+                W_base[:, 1] = 1.0
             else:
-                # All validators switch back to Server 1
-                W[:, 0] = 1.0
-            weights_epochs_case_6.append(W)
+                W_base[:, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_6.append(W_full)
         return weights_epochs_case_6
 
 
@@ -427,30 +513,30 @@ class Case7(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_7 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif epoch == 2:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif 3 <= epoch <= 20:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
+                W_base[:, 1] = 1.0
             elif epoch == 21:
-                W[0, 1] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 1
-                W[2, 0] = 1.0  # Validator C -> Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 0] = 1.0  # All validators -> Server 1
-            weights_epochs_case_7.append(W)
+                W_base[:, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_7.append(W_full)
         return weights_epochs_case_7
 
 
@@ -473,28 +559,28 @@ class Case8(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_8 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif epoch == 1:
-                # Validators B and C switch to Server 2
-                W[0, 0] = 1.0  # Validator A
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif 2 <= epoch <= 20:
-                # Validator A copies weights but still supports Server 1 with minimal weight
-                W[0, 1] = 1.0  # Validator A
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 1] = 1.0  # Validator C -> Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 1] = 1.0
             elif epoch == 21:
-                # Validators B and C switch back to Server 1
-                W[0, 1] = 1.0  # Validator A
-                W[1, 0] = 1.0  # Validator B -> Server 1
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                W[:, 0] = 1.0
-            weights_epochs_case_8.append(W)
+                W_base[:, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_8.append(W_full)
         return weights_epochs_case_8
 
 
@@ -514,10 +600,13 @@ class Case9(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_9 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
-            W[:, 1] = 1.0  # All validators -> Server 2
-            weights_epochs_case_9.append(W)
+            W_base = torch.zeros(n_validators, n_servers)
+            W_base[:, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_9.append(W_full)
         return weights_epochs_case_9
 
     @property
@@ -527,8 +616,8 @@ class Case9(BaseCase):
             if 0 <= epoch <= 5:
                 stakes = torch.tensor([0.8, 0.1, 0.1])
             else:
-                stakes = torch.tensor([0.8, 0.2, 0.0])  # Validator C joins Validator B
-            stakes_epochs_case_9.append(stakes)
+                stakes = torch.tensor([0.8, 0.2, 0.0])
+            stakes_epochs_case_9.append(self.build_full_stakes(stakes))
         return stakes_epochs_case_9
 
 
@@ -548,23 +637,24 @@ class Case10(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_10 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # Initially, consensus is achieved by all Validators
-                W[:, 0] = 1.0
+                W_base[:, 0] = 1.0
             elif 1 <= epoch < 10:
-                W[0, 0] = 1.0  # Validator A -> Server 1
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 0] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             elif epoch == 10:
-                W[0, 1] = 1.0  # Validator A -> Server 2
-                W[1, 1] = 1.0  # Validator B -> Server 2
-                W[2, 0] = 1.0  # Validator C -> Server 1
+                W_base[0, 1] = 1.0
+                W_base[1, 1] = 1.0
+                W_base[2, 0] = 1.0
             else:
-                # Subsequent epochs
-                W[:, 1] = 1.0  # All validators -> Server 2
-            weights_epochs_case_10.append(W)
+                W_base[:, 1] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_10.append(W_full)
         return weights_epochs_case_10
 
 
@@ -587,32 +677,34 @@ class Case11(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_11 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch < 20:
-                # Server 1
-                W[0, 0] = 0.3
-                W[1, 0] = 0.6
-                W[2, 0] = 0.61
-                # Server 2
-                W[0, 1] = 0.7
-                W[1, 1] = 0.4
-                W[2, 1] = 0.39
+                W_base[0, 0] = 0.3
+                W_base[1, 0] = 0.6
+                W_base[2, 0] = 0.61
+                W_base[0, 1] = 0.7
+                W_base[1, 1] = 0.4
+                W_base[2, 1] = 0.39
             else:
-                # Server 1
-                W[0, 0] = 0.3
-                W[1, 0] = 0.6
-                W[2, 0] = 0.3
-                # Server 2
-                W[0, 1] = 0.7
-                W[1, 1] = 0.4
-                W[2, 1] = 0.61
-            weights_epochs_case_11.append(W)
+                W_base[0, 0] = 0.3
+                W_base[1, 0] = 0.6
+                W_base[2, 0] = 0.3
+                W_base[0, 1] = 0.7
+                W_base[1, 1] = 0.4
+                W_base[2, 1] = 0.61
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_11.append(W_full)
         return weights_epochs_case_11
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
-        return [torch.tensor([0.49, 0.49, 0.02])] * self.num_epochs
+        stakes = torch.tensor([0.49, 0.49, 0.02])
+        full_stakes = self.build_full_stakes(stakes)
+        return [full_stakes] * self.num_epochs
+        
 
 
 @register_case("Case 12")
@@ -634,37 +726,31 @@ class Case12(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_12 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch == 0:
-                # All Validators support server 1
-                W[0, 0] = 1.0
-                W[1, :] = torch.tensor(
-                    [0.999, 0.001]
-                )  # Small dishonest vali. shifts slightly to Server 2
-                W[2, 0] = 1.0
+                W_base[0, 0] = 1.0
+                W_base[1, :] = torch.tensor([0.999, 0.001])
+                W_base[2, 0] = 1.0
             elif 1 <= epoch <= 20:
-                # All Validators support server 2
-                W[0, 1] = 1.0
-                W[1, :] = torch.tensor(
-                    [0.001, 0.999]
-                )  # Small dishonest vali. shifts back to Server 2
-                W[2, 1] = 1.0
+                W_base[0, 1] = 1.0
+                W_base[1, :] = torch.tensor([0.001, 0.999])
+                W_base[2, 1] = 1.0
             else:
-                # All Validators support server 1
-                W[0, 0] = 1.0
-                W[1, :] = torch.tensor([0.999, 0.001])
-                W[2, 0] = 1.0
-            weights_epochs_case_12.append(W)
+                W_base[0, 0] = 1.0
+                W_base[1, :] = torch.tensor([0.999, 0.001])
+                W_base[2, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_12.append(W_full)
         return weights_epochs_case_12
 
 
-@dataclass
 @register_case("Case 13")
+@dataclass
 class Case13(BaseCase):
-    name: str = (
-        "Case 13 - Big vali supports server 2, small validator/s support server 1"
-    )
+    name: str = "Case 13 - Big vali supports server 2, small validator/s support server 1"
     validators: list[str] = field(
         default_factory=lambda: [
             "Big vali. (0.8)",
@@ -680,22 +766,25 @@ class Case13(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_13 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
+            W_base = torch.zeros(n_validators, n_servers)
             if epoch <= 20:
-                W[0, 1] = 1.0  # Big vali. supports Server 2
-                W[1, :] = torch.tensor([0.5, 0.5])  # Small vali. supports Server 1
-                W[2, 1] = 1.0  # Small vali 2. supports Server 2
+                W_base[0, 1] = 1.0
+                W_base[1, :] = torch.tensor([0.5, 0.5])
+                W_base[2, 1] = 1.0
             else:
-                W[0, 1] = 1.0  # Big vali. continues to support Server 2
-                W[1, :] = torch.tensor([0.5, 0.5])  # Small vali. supports Server 1
-                W[2, :] = torch.tensor([0.5, 0.5])  # Small vali 2. supports Server 1
-            weights_epochs_case_13.append(W)
+                W_base[0, 1] = 1.0
+                W_base[1, :] = torch.tensor([0.5, 0.5])
+                W_base[2, :] = torch.tensor([0.5, 0.5])
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_13.append(W_full)
         return weights_epochs_case_13
 
 
-@dataclass
 @register_case("Case 14")
+@dataclass
 class Case14(BaseCase):
     name: str = "Case 14 - All validators support Server 1, one of them switches to Server 2 for one epoch"
     validators: list[str] = field(
@@ -707,23 +796,27 @@ class Case14(BaseCase):
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_14 = []
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
         for epoch in range(self.num_epochs):
-            W = torch.zeros(3, 2)
-            if epoch >= 0 and epoch < 20:
-                # Consensus is achieved by all Validators
-                W[:, 0] = 1.0
+            W_base = torch.zeros(n_validators, n_servers)
+            if 0 <= epoch < 20:
+                W_base[:, 0] = 1.0
             elif epoch == 20:
-                W[0, 0] = 1.0  # Validator 1 -> Server 1
-                W[1, 0] = 1.0  # Validator 2 -> Server 1
-                W[2, 1] = 1.0  # Validator 3 -> Server 2
+                W_base[0, 0] = 1.0
+                W_base[1, 0] = 1.0
+                W_base[2, 1] = 1.0
             else:
-                W[:, 0] = 1.0  # All validators -> Server 1
-            weights_epochs_case_14.append(W)
+                W_base[:, 0] = 1.0
+            W_full = self.build_full_weights(W_base)
+            weights_epochs_case_14.append(W_full)
         return weights_epochs_case_14
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
-        return [torch.tensor([0.33, 0.33, 0.34])] * self.num_epochs
+        stakes = torch.tensor([0.33, 0.33, 0.34])
+        full_stakes = self.build_full_stakes(stakes)
+        return [full_stakes] * self.num_epochs
 
 
 # Instantiate all cases dynamically

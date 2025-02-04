@@ -58,7 +58,7 @@ def run_single_scenario(args):
 
     try:
         logger.info("Loading metagraphs.")
-        metas = load_metas_from_directory(f"./{args.metagraphs_dir}/subnet_{args.subnet_id}")
+        metas = load_metas_from_directory(f"./{args.metagraphs_dir}/subnet_{args.subnet_id}", args.epochs)
     except Exception:
         logger.error("Error while loading metagraphs", exc_info=True)
         return
@@ -105,7 +105,7 @@ def run_single_scenario(args):
         logger.info(f"Running simulation")
         simulation_hyperparameters = SimulationHyperparameters()
 
-        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison.html"
+        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison_3rd_biggest_vali.html"
 
         yuma_params = YumaParams(bond_alpha=0.025, alpha_high=0.9, alpha_low=0.7)
         yuma4_liquid_params = replace(yuma_params, liquid_alpha=True)
@@ -122,6 +122,7 @@ def run_single_scenario(args):
                 normal_case = normal_case,
                 shifted_case = shifted_case,
                 yuma_hyperparameters=simulation_hyperparameters,
+                epochs_padding=args.epochs_padding,
                 draggable_table=args.draggable_table,
             )
 
@@ -130,7 +131,7 @@ def run_single_scenario(args):
                 logger.info(f"Simulation results saved to {file_name}")
 
         except Exception as e:
-            logger.error(f"Error generating the chart table: {e}")
+            logger.error(f"Error generating the chart table: {e}", exc_info=True)
 
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)

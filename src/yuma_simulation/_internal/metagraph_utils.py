@@ -85,7 +85,8 @@ def download_metagraph(netuid, start_block, file_prefix, max_retries=5, retry_de
     )
 
 
-def load_metas_from_directory(storage_path: str) -> list[torch.Tensor]:
+
+def load_metas_from_directory(storage_path: str, epochs_num: int) -> list[torch.Tensor]:
     metas = []
 
     logger.info(f"Checking directory: {storage_path}")
@@ -95,6 +96,14 @@ def load_metas_from_directory(storage_path: str) -> list[torch.Tensor]:
 
     files = os.listdir(storage_path)
     logger.debug(f"Found files: {files}")
+
+    num_files = len(files)
+
+    if epochs_num > num_files:
+        logger.warning(f"Requested {epochs_num} epochs, but only {num_files} files available.")
+        epochs_num = num_files
+
+    files = files[:epochs_num]
 
     for filename in sorted(files):
         file_path = os.path.join(storage_path, filename)
@@ -107,7 +116,7 @@ def load_metas_from_directory(storage_path: str) -> list[torch.Tensor]:
         except Exception as e:
             logger.error(f"Error loading {file_path}: {e}")
 
-    logger.info(f"Loaded {len(metas)} metagraphs.")
+    logger.info(f"Loaded {len(metas)} metagraphs (Requested: {epochs_num}).")
     return metas
 
 
