@@ -46,6 +46,7 @@ def generate_chart_table(
     case_row_ranges = []
     current_row_count = 0
 
+    simulation_names = YumaSimulationNames()
     for idx, case in enumerate(cases):
         current_chart_types = chart_types or (
             ["weights", "dividends", "bonds", "normalized_bonds", "incentives"]
@@ -58,6 +59,10 @@ def generate_chart_table(
             chart_base64_dict: dict[str, str] = {}
             #TODO(konrad) check if optimization with pushing the yuma versions to outer context is possible
             for yuma_version, yuma_params in yuma_versions:
+                if yuma_version == simulation_names.YUMA4_LIQUID_FIXED:
+                    case.disable_matrix_fix = False
+                else:
+                    case.disable_matrix_fix = True
                 yuma_config = YumaConfig(
                     simulation=yuma_hyperparameters, yuma_params=yuma_params
                 )
@@ -88,7 +93,7 @@ def generate_chart_table(
                 if chart_type == "weights":
                     chart_base64 = _plot_validator_server_weights(
                         validators=case.validators,
-                        weights_epochs=case.weights_epochs,
+                        weights_epochs=case.weights_epochs_guard,
                         servers=case.servers,
                         num_epochs=case.num_epochs,
                         case_name=final_case_name,

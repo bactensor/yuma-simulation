@@ -57,6 +57,7 @@ class YumaSimulationNames:
     YUMA32: str = "Yuma 3.2 (Rhef+conditional)"
     YUMA4: str = "Yuma 4 (Rhef+relative bonds)"
     YUMA4_LIQUID: str = "Yuma 4 (Rhef+relative bonds) - liquid alpha on"
+    YUMA4_LIQUID_FIXED: str = "Yuma 4 [...] MATRIX FIX"
 
 
 def YumaRust(

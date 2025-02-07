@@ -24,12 +24,20 @@ class BaseCase:
     reset_bonds_index: int = None
     reset_bonds_epoch: int = None
     servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2"])
+    disable_matrix_fix: bool = False
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
         raise NotImplementedError(
             "Subclasses must implement the weights_epochs property."
         )
+
+    @property
+    def weights_epochs_guard(self) -> list[torch.Tensor]:
+        w = self.weights_epochs
+        if self.disable_matrix_fix is False:
+            w = [torch.stack([x[-len(self.servers):] for x in y[:len(self.validators)]]) for y in w]
+        return w
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
@@ -57,6 +65,8 @@ class BaseCase:
           (n_validators + n_servers) x (n_validators + n_servers)
         so that the validators (rows) vote only in the server columns.
         """
+        if self.disable_matrix_fix:
+            return W_base
         n_validators = len(self.validators)
         n_servers = len(self.servers)
         total = n_validators + n_servers
@@ -71,6 +81,8 @@ class BaseCase:
         append zeros for the servers (miners) so that the resulting tensor has shape
           (n_validators + n_servers,)
         """
+        if self.disable_matrix_fix:
+            return stakes_valid
         n_servers = len(self.servers)
         zeros = torch.zeros(n_servers, dtype=stakes_valid.dtype)
         return torch.cat([stakes_valid, zeros])

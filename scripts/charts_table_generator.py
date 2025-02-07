@@ -45,6 +45,7 @@ def main():
             (yumas.YUMA32, base_yuma_params),
             (yumas.YUMA4, base_yuma_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
+            (yumas.YUMA4_LIQUID_FIXED, yuma4_liquid_params),
         ]
 
         logger.info("Generating chart table...")

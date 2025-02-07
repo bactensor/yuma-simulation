@@ -80,7 +80,7 @@ def run_simulation(
             result = Yuma3(W, S, B_old=B_state, config=yuma_config)
             B_state = result["validator_bonds"]
             server_consensus_weight = result["server_consensus_weight"]
-        elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
+        elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID, simulation_names.YUMA4_LIQUID_FIXED]:
             if (
                 B_state is not None
                 and epoch == case.reset_bonds_epoch
@@ -111,8 +111,13 @@ def run_simulation(
                 dividend_per_1000_tao = 0.0
             dividends_per_validator[validator].append(dividend_per_1000_tao)
 
-        bonds_per_epoch.append(B_state.clone())
-        server_incentives_per_epoch.append(result["server_incentive"])
+        b = B_state.clone()
+        i = result["server_incentive"].clone()
+        if case.disable_matrix_fix is False:
+            b = torch.stack([x[-len(case.servers):] for x in b[:len(case.validators)]])
+            i = i[-len(case.servers):]
+        bonds_per_epoch.append(b)
+        server_incentives_per_epoch.append(i)
 
         S = S / S.sum()
 
@@ -218,7 +223,7 @@ def run_dynamic_simulation(
             result = Yuma3(W, S, B_old=B_state, config=yuma_config)
             B_state = result["validator_bonds"]
             server_consensus_weight = result["server_consensus_weight"]
-        elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
+        elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID, simulation_names.YUMA4_LIQUID_FIXED]:
             if (
                 B_state is not None
                 and epoch == case.reset_bonds_epoch
@@ -487,6 +492,7 @@ def generate_total_dividends_table(
 
     all_column_names = set()
     rows = []
+    simulation_names = YumaSimulationNames()
 
     for case in cases:
         # Decide how to name the validators
@@ -504,9 +510,15 @@ def generate_total_dividends_table(
 
         # Build the row for this case
         row = {"Case": case.name}
-
         # Run each Yuma version simulation
         for yuma_version, yuma_params in yuma_versions:
+            if yuma_version == simulation_names.YUMA4_LIQUID_FIXED:
+                print("Disabling matrix fix for Yuma4 Liquid Fixed")
+                case.disable_matrix_fix = False
+            else:
+                print("Enabling matrix fix for Yuma4 Liquid Fixed")
+                case.disable_matrix_fix = True
+
             yuma_config = YumaConfig(
                 simulation=simulation_hyperparameters,
                 yuma_params=yuma_params,
