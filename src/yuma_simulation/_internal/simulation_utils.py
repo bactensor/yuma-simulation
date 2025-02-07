@@ -87,7 +87,11 @@ def run_simulation(
                 and server_consensus_weight is not None
                 and server_consensus_weight[case.reset_bonds_index] == 0.0
             ):
-                B_state[:, case.reset_bonds_index] = 0.0
+                idx = case.reset_bonds_index
+                if case.disable_matrix_fix is False:
+                    idx = len(case.validators) + case.reset_bonds_index
+                B_state[:, idx] = 0.0
+
             result = Yuma4(W, S, B_old=B_state, config=yuma_config)
             B_state = result["validator_bonds"]
             server_consensus_weight = result["server_consensus_weight"]
