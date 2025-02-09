@@ -1,5 +1,5 @@
-from yuma_simulation._internal.logger_setup import main_logger as logger
 
+import logging
 import os
 import time
 import torch
@@ -7,7 +7,7 @@ import bittensor as bt
 from multiprocessing import Pool
 from .experiment_setup import ExperimentSetup
 
-
+logger = logging.getLogger("main_logger")
 def ensure_tensor_on_cpu(obj):
     return obj.cpu() if isinstance(obj, torch.Tensor) else obj
 
@@ -152,9 +152,13 @@ class DownloadMetagraph:
         args = list(set(args))  # remove duplicates
         logger.debug(f"Prepared download arguments: {args}")
 
-        with Pool(processes=self.setup.processes) as pool:
-            pool.starmap(download_metagraph, args)
-        logger.info("DownloadMetagraph run completed.")
+        try:
+            with Pool(processes=self.setup.processes) as pool:
+                pool.starmap(download_metagraph, args)
+            logger.info("DownloadMetagraph run completed.")
+        except Exception as e:
+            logger.error("Error occurred during metagraph download in pool.", e)
+            raise
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 from dataclasses import replace
+import logging
 
-from yuma_simulation._internal.logger_setup import main_logger as logger
 from yuma_simulation._internal.cases import cases
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
@@ -8,9 +8,13 @@ from yuma_simulation._internal.yumas import (
     YumaSimulationNames,
 )
 from yuma_simulation.v1.api import generate_chart_table
+from yuma_simulation._internal.logger_setup import setup_logger
 
 
 def main():
+    global logger
+    logger = setup_logger("main_logger", "application.log", logging.INFO)
+
     # List of bond_penalty values and corresponding file names
     bond_penalty_values = [0, 0.5, 0.99, 1.0]
 
@@ -20,7 +24,7 @@ def main():
             bond_penalty=bond_penalty,
         )
 
-        file_name = f"simulation_results_b{bond_penalty}.html"
+        file_name = f"simulation_charts_b{bond_penalty}.html"
 
         # Setting individual yuma simulations parameters
         base_yuma_params = YumaParams()
@@ -37,20 +41,23 @@ def main():
         yumas = YumaSimulationNames()
         yuma_versions = [
             (yumas.YUMA_RUST, base_yuma_params),
-            (yumas.YUMA, base_yuma_params),
-            (yumas.YUMA_LIQUID, liquid_alpha_on_yuma_params),
-            (yumas.YUMA2, base_yuma_params),
-            (yumas.YUMA3, base_yuma_params),
-            (yumas.YUMA31, base_yuma_params),
-            (yumas.YUMA32, base_yuma_params),
+            # (yumas.YUMA, base_yuma_params),
+            # (yumas.YUMA_LIQUID, liquid_alpha_on_yuma_params),
+            # (yumas.YUMA2, base_yuma_params),
+            # (yumas.YUMA3, base_yuma_params),
+            # (yumas.YUMA31, base_yuma_params),
+            # (yumas.YUMA32, base_yuma_params),
             (yumas.YUMA4, base_yuma_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
 
         logger.info("Generating chart table...")
-        chart_table = generate_chart_table(
-            cases, yuma_versions, simulation_hyperparameters, draggable_table=True
-        )
+        try:
+            chart_table = generate_chart_table(
+                cases, yuma_versions, simulation_hyperparameters, draggable_table=True
+            )
+        except Exception as e:
+            logger.error(f"Error generating the chart table: {e}", exc_info=True)
 
         # Save the HTML file
         with open(file_name, "w", encoding="utf-8") as f:

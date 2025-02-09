@@ -5,15 +5,16 @@ It includes functions for generating plots, calculating dividends, and preparing
 
 import base64
 import io
+import logging
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.axes import Axes
-from matplotlib.ticker import ScalarFormatter
 from matplotlib.ticker import FuncFormatter
 from yuma_simulation._internal.cases import BaseCase
 
+logger = logging.getLogger("main_logger")
 
 def _calculate_total_dividends(
     validators: list[str],
@@ -26,13 +27,12 @@ def _calculate_total_dividends(
     total_dividends: dict[str, float] = {}
     for validator in validators:
         divs: list[float] = dividends_per_validator.get(validator, [])
-        divs = divs[:num_epochs]
-        total_dividend = sum(divs)
+        total_dividend = sum(divs[:num_epochs])
         total_dividends[validator] = total_dividend
 
     base_dividend = total_dividends.get(base_validator, None)
     if base_dividend is None or base_dividend == 0.0:
-        print(
+        logger.warning(
             f"Warning: Base validator '{base_validator}' has zero or missing total dividends."
         )
         base_dividend = 1e-6
@@ -70,28 +70,7 @@ def _calculate_total_dividends_with_frames(
       If num_epochs=40, epochs_window=10 => 4 frames (each covering 10 epochs).
       With `use_relative=False`, we sum each window.
       With `use_relative=True`, we average each window.
-
-    Args:
-        validator_dividends: The list of dividends (absolute or relative).
-        num_epochs: Total number of epochs to consider.
-        epochs_window: The size of each "frame" or window in epochs.
-        use_relative: If True, treat the list as relative percentages and compute averages
-                      instead of sums.
-
-    Returns:
-        frames_values: list of floats, one value per window
-        total_value:   float, sum of all truncated_divs if `use_relative=False`,
-                       or average of all truncated_divs if `use_relative=True`.
     """
-    if epochs_window <= 0:
-        raise ValueError(f"epochs_window must be > 0. Got {epochs_window}.")
-
-    if num_epochs < epochs_window:
-        print(
-            f"Warning: The total number of epochs ({num_epochs}) is smaller than "
-            f"the requested epochs_window ({epochs_window}). "
-            "You will get only one partial window."
-        )
 
     # Truncate any extra dividends if validator_dividends is longer than num_epochs
     truncated_divs = validator_dividends[:num_epochs]
@@ -245,13 +224,13 @@ def _plot_relative_dividends(
     # Adjust the number of epochs to be plotted.
     plot_epochs = num_epochs - epochs_padding
     if plot_epochs <= 0:
-        print("Epochs padding is too large relative to num_epochs. Nothing to plot.")
+        logger.warning("Epochs padding is too large relative to num_epochs. Nothing to plot.")
         return None
 
-    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
+    _, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
 
     if not validators_relative_dividends:
-        print("No validator data to plot.")
+        logger.warning("No validator data to plot.")
         return None
 
     all_validators = list(validators_relative_dividends.keys())
@@ -267,7 +246,7 @@ def _plot_relative_dividends(
         plot_validator_names.append(case.base_validator)
 
     if not plot_validator_names:
-        print("No matching validators to plot.")
+        logger.warning("No matching validators to plot.")
         return None
 
     # Use the adjusted number of epochs.
@@ -359,13 +338,13 @@ def _plot_relative_dividends_comparisson(
     # Adjust the number of epochs to be plotted.
     plot_epochs = num_epochs - epochs_padding
     if plot_epochs <= 0:
-        print("Epochs padding is too large relative to num_epochs. Nothing to plot.")
+        logger.warning("Epochs padding is too large relative to number of total epochs. Nothing to plot.")
         return None
 
-    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
+    _, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
 
-    if not validators_relative_dividends_normal:
-        print("No validator data to plot for the normal case.")
+    if not validators_relative_dividends_normal or not validators_relative_dividends_shifted:
+        logger.warning("No validator data to plot.")
         return None
 
     all_validators = list(validators_relative_dividends_normal.keys())
@@ -757,3 +736,79 @@ def _compute_mean(dividends: np.ndarray) -> float:
     if np.all(np.isnan(dividends)):
         return 0.0
     return np.nanmean(dividends)
+
+
+
+def _generate_chart_for_type(
+    chart_type: str,
+    case: BaseCase,
+    final_case_name: str,
+    simulation_results: tuple | None = None,
+    to_base64: bool = True,
+    epochs_padding: int = 0
+) -> str:
+    """
+    Dispatches to the correct plotting function based on the chart type.
+    For types that need simulation results, the tuple is unpacked as needed.
+    """
+    if chart_type == "weights":
+        return _plot_validator_server_weights(
+            validators=case.validators,
+            weights_epochs=case.weights_epochs,
+            servers=case.servers,
+            num_epochs=case.num_epochs,
+            case_name=final_case_name,
+            to_base64=to_base64,
+        )
+    elif chart_type == "dividends":
+        dividends_per_validator, *_ = simulation_results
+        return _plot_dividends(
+            num_epochs=case.num_epochs,
+            validators=case.validators,
+            dividends_per_validator=dividends_per_validator,
+            case_name=final_case_name,
+            case=case,
+            to_base64=to_base64,
+        )
+    elif chart_type == "relative_dividends":
+        _, validators_relative_dividends, *_ = simulation_results
+        return _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends,
+            case_name=final_case_name,
+            case=case,
+            num_epochs=case.num_epochs,
+            epochs_padding=epochs_padding,
+            to_base64=to_base64,
+        )
+    elif chart_type == "bonds":
+        _, _, bonds_per_epoch, *_ = simulation_results
+        return _plot_bonds(
+            num_epochs=case.num_epochs,
+            validators=case.validators,
+            servers=case.servers,
+            bonds_per_epoch=bonds_per_epoch,
+            case_name=final_case_name,
+            to_base64=to_base64,
+        )
+    elif chart_type == "normalized_bonds":
+        _, _, bonds_per_epoch, *_ = simulation_results
+        return _plot_bonds(
+            num_epochs=case.num_epochs,
+            validators=case.validators,
+            servers=case.servers,
+            bonds_per_epoch=bonds_per_epoch,
+            case_name=final_case_name,
+            to_base64=to_base64,
+            normalize=True,
+        )
+    elif chart_type == "incentives":
+        *_, server_incentives_per_epoch = simulation_results
+        return _plot_incentives(
+            servers=case.servers,
+            server_incentives_per_epoch=server_incentives_per_epoch,
+            num_epochs=case.num_epochs,
+            case_name=final_case_name,
+            to_base64=to_base64,
+        )
+    else:
+        raise ValueError("Invalid chart type.")

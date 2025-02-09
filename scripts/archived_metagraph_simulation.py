@@ -1,66 +1,40 @@
-from dataclasses import replace
-import bittensor as bt
-import os
-import json
 import argparse
+import logging
+from argparse import Namespace
 
-from yuma_simulation._internal.logger_setup import main_logger as logger
-from yuma_simulation._internal.yumas import (
-    SimulationHyperparameters,
-    YumaParams,
-    YumaSimulationNames,
-)
-
-from yuma_simulation.v1.api import generate_chart_table
-from yuma_simulation._internal.cases import MetagraphCase
-from yuma_simulation._internal.experiment_setup import ExperimentSetup
+from yuma_simulation.v1.api import generate_metagraph_based_chart_table
+from yuma_simulation._internal.simulation_utils import _generate_relative_dividends_comparisson_table
 from yuma_simulation._internal.metagraph_utils import (
-    DownloadMetagraph,
     load_metas_from_directory,
 )
-from common_cli import _create_common_parser
+from yuma_simulation._internal.logger_setup import setup_logger
+from utils import (
+    setup_and_download_the_metagraphs,
+    create_output_dir,
+    create_metagraph_case,
+    load_simulation_config,
+    create_simulation_objects,
+)
 
-
-def create_output_dir(output_dir, subnet_id):
+def run_single_scenario(args: Namespace) -> None:
     """
-    Creates the output directory if it does not exist.
-    """
-    if not os.path.exists(f"./{output_dir}/subnet_{subnet_id}"):
-        os.makedirs(f"./{output_dir}/subnet_{subnet_id}")
-        logger.info(f"Created output directory: {output_dir}")
-    else:
-        logger.debug(f"Output directory already exists: {output_dir}")
-
-
-def run_single_scenario(args):
-    """
-    Encapsulates the logic to run a single subnet scenario with the given arguments.
+    Runs a single subnet scenario using the merged configuration.
     """
     create_output_dir(args.output_dir, args.subnet_id)
 
-    two_days_blocks = 14400
-    current_block = bt.subtensor().get_current_block()
-    start_block = current_block - two_days_blocks
-
     if args.download_new_metagraph:
-        setup = ExperimentSetup(
-            netuids=[args.subnet_id],
-            start_block=start_block,
-            tempo=args.tempo,
-            data_points=args.epochs,
-            metagraph_storage_path=f"./{args.metagraphs_dir}/subnet_{args.subnet_id}",
-            result_path="./results",
-            liquid_alpha=False,
-        )
-
-        downloader = DownloadMetagraph(setup)
-        downloader.run()
+        logger.info("Downloading metagraphs...")
+        try:
+            setup_and_download_the_metagraphs(args)
+        except Exception as e:
+            logger.error(f"Download metagraph failed. Aborting further processing. {e}")
+            return
 
     try:
-        logger.info("Loading metagraphs.")
-        metas = load_metas_from_directory(f"./{args.metagraphs_dir}/subnet_{args.subnet_id}")
-    except Exception:
-        logger.error("Error while loading metagraphs", exc_info=True)
+        logger.info("Loading metagraphs...")
+        metas = load_metas_from_directory(f"./{args.metagraphs_dir}/subnet_{args.subnet_id}", args.epochs)
+    except Exception as e:
+        logger.error(f"Error while loading metagraphs: {e}")
         return
 
     if not metas:
@@ -68,48 +42,34 @@ def run_single_scenario(args):
         return
     logger.debug(f"Loaded {len(metas)} metagraphs from {args.metagraphs_dir}.")
 
+    logger.info("Creating Metagraph cases...")
     try:
-        logger.info("Creating MetagraphCase.")
-        case = MetagraphCase(
-            shift_validator_id=args.shift_validator_id,
-            name="Metagraph Based Dividends",
-            metas=metas,
-            num_epochs=len(metas),
-            introduce_shift=args.introduce_shift,
-            top_validators_ids=args.top_validators
-        )
-        logger.debug(f"MetagraphCase created successfully: {case}")
-    except Exception:
-        logger.error("Error while creating MetagraphCase.", exc_info=True)
-        return
-    logger.debug(f"Created MetagraphCase: {case}")
+        normal_case = create_metagraph_case(args, metas, introduce_shift=False)
+    except RuntimeError as e:
+        logger.error("Aborting processing due to failure creating the normal MetagraphCase.")
+        raise
+    logger.debug(f"Created MetagraphCase: {normal_case.name}")
 
     try:
-        logger.info(f"Running simulation")
-        simulation_hyperparameters = SimulationHyperparameters()
+        shifted_case = create_metagraph_case(args, metas, introduce_shift=True)
+    except RuntimeError as e:
+        logger.error("Aborting processing due to failure creating the shifted MetagraphCase.")
+        raise
+    logger.debug(f"Created MetagraphCase: {shifted_case.name}")
 
-        if args.introduce_shift:
-            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_shifted.html"
-            logger.debug(f"Output file: {file_name}")
-        else:
-            file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_relative_results.html"
-            logger.debug(f"Output file: {file_name}")
+    simulation_hyperparameters, yuma_versions = create_simulation_objects(args.yuma_config)
 
-        yuma4_params = YumaParams(bond_alpha=0.025, alpha_high=0.9, alpha_low=0.7)
-        yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)
-
-        yumas = YumaSimulationNames()
-        yuma_versions = [
-            (yumas.YUMA4_LIQUID, yuma4_liquid_params),
-        ]
-
+    if args.generate_chart_table:
+        file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison{args.shift_validator_id}.html"
+        logger.info("Creating the charts table...")
         try:
-            chart_table = generate_chart_table(
+            chart_table = generate_metagraph_based_chart_table(
                 yuma_versions=yuma_versions,
-                cases=[case],
+                normal_case=normal_case,
+                shifted_case=shifted_case,
                 yuma_hyperparameters=simulation_hyperparameters,
-                chart_types=["dividends"],
-                draggable_table=args.draggable_table,
+                epochs_padding=args.epochs_padding,
+                draggable_table=True,
             )
 
             with open(file_name, "w", encoding="utf-8") as f:
@@ -118,37 +78,50 @@ def run_single_scenario(args):
 
         except Exception as e:
             logger.error(f"Error generating the chart table: {e}")
-
-    except Exception as e:
-        logger.error(f"An error occurred: {e}", exc_info=True)
-
+        
+    if args.generate_dividends_table:
+        file_name_csv = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_dividends_framed_table.csv"
+        logger.info("Starting generation of total dividends table.")
+        try:
+            dividends_df = _generate_relative_dividends_comparisson_table(
+                case_normal=normal_case,
+                case_shifted=shifted_case,
+                yuma_versions=yuma_versions,
+                simulation_hyperparameters=simulation_hyperparameters,
+                epochs_padding=args.epochs_padding,
+                epochs_window=args.epochs_window,
+            )
+            dividends_df = dividends_df.applymap(
+                lambda x: f"{x:.3e}" if isinstance(x, (float, int)) and abs(x) < 1e-6 else x
+            )
+            dividends_df.to_csv(file_name_csv, index=False)
+            logger.info(f"CSV file {file_name_csv} has been created successfully.")
+        except Exception as e:
+            logger.error(f"Error generating the dividends table: {e}")
 
 def main():
-    parser = _create_common_parser()
-    args = parser.parse_args()
+    global logger
+    logger = setup_logger("main_logger", "application.log", logging.INFO)
 
-    if args.use_json_config:
-        # MULTI-RUN MODE
-        with open(args.config_file, "r") as f:
-            config_data = json.load(f)
-
-        scenarios = config_data.get("scenarios", [])
+    args, simulation_config = load_simulation_config()
+    logger.info("runinng the simulation")
+    if args.run_multiple_scenarios:
+        # MULTI-RUN MODE: use scenario-specific configurations from the unified config.
+        scenarios = simulation_config.get("scenarios", [])
         if not scenarios:
-            logger.error("No scenarios found in the JSON file.")
+            logger.error("No scenarios found in the unified configuration file.")
             return
 
         for index, scenario_dict in enumerate(scenarios, start=1):
             logger.info(f"\n===== Running scenario {index} =====")
-
+            # Create a new Namespace that merges CLI/global args with the scenario-specific settings.
             scenario_args = argparse.Namespace(**vars(args))
             for key, value in scenario_dict.items():
                 setattr(scenario_args, key, value)
             run_single_scenario(scenario_args)
-
     else:
-        # SINGLE-RUN MODE
+        # SINGLE-RUN MODE: simply run with args from CLI merged with global config.
         run_single_scenario(args)
-
 
 if __name__ == "__main__":
     main()

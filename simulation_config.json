@@ -1,0 +1,88 @@
+{
+    "global": {
+      "generate_chart_table": true,
+      "generate_dividends_table": true,
+      "output_dir": "results",
+      "metagraphs_dir": "metagraphs",
+      "download_new_metagraph": false,
+      "epochs_padding": 20,
+      "epochs_window": 20
+    },
+    "scenarios": [
+      {
+        "subnet_id": 9,
+        "epochs": 30,
+        "tempo": 360,
+        "shift_validator_id": 244,
+        "top_validators": [109, 238, 244]
+      },
+      {
+        "subnet_id": 15,
+        "epochs": 30,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 2,
+        "top_validators": [2, 52, 56]
+      },
+      {
+        "subnet_id": 21,
+        "epochs": 180,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 224,
+        "top_validators": [224, 47, 0]
+      },
+      {
+        "subnet_id": 31,
+        "epochs": 180,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 10,
+        "top_validators": [10, 250, 107]
+      },
+      {
+        "subnet_id": 42,
+        "epochs": 180,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 255,
+        "top_validators": [255, 29, 244]
+      },
+      {
+        "subnet_id": 48,
+        "epochs": 180,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 15,
+        "top_validators": [15, 55, 56]
+      },
+      {
+        "subnet_id": 56,
+        "epochs": 180,
+        "tempo": 360,
+        "start_block_offset": 14400,
+        "shift_validator_id": 207,
+        "top_validators": [207, 190, 100]
+      }
+    ],
+    "simulation_hyperparameters": {
+      "kappa": 0.5
+    },
+    "yuma_versions": [
+      {
+        "name": "YUMA_RUST",
+        "params": {
+          "bond_alpha": 0.025,
+          "liquid_alpha": false
+        }
+      },
+      {
+        "name": "YUMA4",
+        "params": {
+          "bond_alpha": 0.025,
+          "liquid_alpha": true
+        }
+      }
+    ]
+  }
+  

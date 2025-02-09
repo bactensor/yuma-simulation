@@ -49,41 +49,28 @@ pdm install --dev
 
 Run `nox -s make_release -- X.Y.Z` where `X.Y.Z` is the version you're releasing and follow the printed instructions.
 
-### Using the archived metagraph based cases
-There are scripts tailored for generation of dividends charts and the total dividends data. The example usage:
+### Using the archived metagraph based simulation script
+There is a json configuration 'simulation_config.json' that enables you to tailor the simulation runs, outputs, and data management to your specific requirements. Adjust the values as needed to experiment with different subnets, hyperparameters, and simulation versions.
 
-python ./scripts/archived_metagraph_simulation.py \
-  --subnet-id 21 \
-  --bond-penalties 1.0, 0.99 \
-  --epochs 40 \
-  --tempo 360 \
-  --start-block-offset 14400 \
-  --shift-validator-id 0 \
-  --draggable-table \
-  --download-new-metagraph \
-  --introduce-shift
+Output Options:
+Enable or disable chart and dividend table generation using generate_chart_table and generate_dividends_table. At least one must be set to true to produce outputs.
 
-This example will:
-Simulate on subnet ID 21.
-Use bond penalties 1.0 and 0.99.
-Run for 40 epochs with a tempo of 360.
-Offset the start block by 14400 blocks.
-Shift validator ID 0 weights back by one epoch.
-Enable draggable html table generation.
-Force downloading a new metagraph.
-Introduce a shift of the chosen validator weights in the simulation.
+Directories:
+Set output_dir and metagraphs_dir to point to directories where input data and outputs will be saved.
 
-It is possible to run generation of multiple subnet data, the metagraph_subnets_config.json located at the root of the project is the configuration file used for that purpose. Flags applicable to individual subnet data generation are then defined in the configuration, while any other 'global' flags like '--download-new-metagraph' are required to provide as arguments for the script. The example usage:
+Data Initialization:
+On the first run, set download_new_metagraph to true so that the necessary metagraph data is downloaded.
 
-python ./scripts/archived_metagraph_simulation.py \
-  --use-json-config \
-  --introduce-shift \
-  --download-new-metagraph \
-  --draggable-table
+Epoch Parameters:
+Adjust epochs_padding to ignore an appropriate number of initial epochs (typically 20–40) to allow the bonds and weights to stabilize, and set epochs_window to define how many epochs are averaged together in the output tables.
 
-This example will:
-Simulate on all the provided subnets in the json configuration file.
-Use the bond penalties, tempo and other parameters as configured in the json config.
-Introduce a shift of the chosen validator weights in the simulation.
-Force downloading a new metagraph for each subnet simulation.
-Enable draggable html table generation.
+Scenarios:
+Each scenario under the scenarios array specifies a distinct simulation run for a particular subnet. Configure the subnet ID, number of epochs, tempo, the validator to shift (simulate higher GPU load), and which top validators to include in the output charts and tables.
+
+Hyperparameters & Versions:
+The simulation_hyperparameters and yuma_versions sections allow you to fine-tune simulation behavior. For each Yuma version listed, the script will run the simulations using the provided parameters.
+
+Example usage to run the script using multiple scenarios from the json configuration:
+
+python ./scripts/archived_metagraph_simulation.py --run-multiple-scenarios
+
