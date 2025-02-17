@@ -68,7 +68,6 @@ def _run_simulation(
         D_normalized: torch.Tensor = simulation_results["validator_reward_normalized"]
 
         _update_validators_dividends(
-            epoch=epoch,
             D_normalized=D_normalized,
             S=S,
             yuma_config=yuma_config,

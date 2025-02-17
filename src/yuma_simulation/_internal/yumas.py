@@ -17,7 +17,7 @@ class SimulationHyperparameters:
 
 @dataclass
 class YumaParams:
-    bond_alpha: float = 0.1
+    bond_moving_avg: float = 0.1
     liquid_alpha: bool = False
     alpha_high: float = 0.9
     alpha_low: float = 0.7
@@ -117,7 +117,7 @@ def YumaRust(
     B = torch.nan_to_num(B)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    bond_alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -138,7 +138,7 @@ def YumaRust(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
@@ -234,7 +234,7 @@ def Yuma(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    bond_alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -255,7 +255,7 @@ def Yuma(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
@@ -349,7 +349,7 @@ def Yuma2(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    bond_alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -370,7 +370,7 @@ def Yuma2(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
@@ -591,7 +591,7 @@ def Yuma4(
 
     # === Liquid Alpha Adjustment ===
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    bond_alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -614,7 +614,7 @@ def Yuma4(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     # === Bonds ===
     if B_old is None:
