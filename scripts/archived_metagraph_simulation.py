@@ -45,14 +45,14 @@ def run_single_scenario(args: Namespace) -> None:
     logger.info("Creating Metagraph cases...")
     try:
         normal_case = create_metagraph_case(args, metas, introduce_shift=False)
-    except RuntimeError as e:
+    except RuntimeError:
         logger.error("Aborting processing due to failure creating the normal MetagraphCase.")
         raise
     logger.debug(f"Created MetagraphCase: {normal_case.name}")
 
     try:
         shifted_case = create_metagraph_case(args, metas, introduce_shift=True)
-    except RuntimeError as e:
+    except RuntimeError:
         logger.error("Aborting processing due to failure creating the shifted MetagraphCase.")
         raise
     logger.debug(f"Created MetagraphCase: {shifted_case.name}")

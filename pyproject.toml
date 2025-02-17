@@ -1,7 +1,7 @@
 [project]
 version = "0.1.0" 
 name = "yuma-simulation"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.13"
 keywords = []
 license = {text = "MIT"}
 readme = "README.md"

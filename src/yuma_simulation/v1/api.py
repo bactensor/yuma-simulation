@@ -1,6 +1,5 @@
 import pandas as pd
 import logging
-import torch
 from IPython.display import HTML
 
 from yuma_simulation._internal.cases import BaseCase
