@@ -45,6 +45,7 @@ def _run_simulation(
 
     # These states are passed between epochs.
     B_state: torch.Tensor | None = None
+    C_state: torch.Tensor | None = None
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
@@ -53,12 +54,13 @@ def _run_simulation(
         W: torch.Tensor = case.weights_epochs[epoch]
         S: torch.Tensor = case.stakes_epochs[epoch]
 
-        simulation_results, B_state, W_prev, server_consensus_weight = _call_yuma(
+        simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
             yuma_version=yuma_version,
             W=W,
             S=S,
             B_state=B_state,
+            C_state=C_state,
             W_prev=W_prev,
             server_consensus_weight=server_consensus_weight,
             case=case,
@@ -68,7 +70,6 @@ def _run_simulation(
         D_normalized: torch.Tensor = simulation_results["validator_reward_normalized"]
 
         _update_validators_dividends(
-            epoch=epoch,
             D_normalized=D_normalized,
             S=S,
             yuma_config=yuma_config,
@@ -113,6 +114,7 @@ def _run_dynamic_simulation(
 
     # These states are passed between epochs.
     B_state: torch.Tensor | None = None
+    C_state: torch.Tensor | None = None
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
@@ -146,6 +148,7 @@ def _run_dynamic_simulation(
             W=W,
             S=S,
             B_state=B_state,
+            C_state=C_state,
             W_prev=W_prev,
             server_consensus_weight=server_consensus_weight,
             case=case,
@@ -183,6 +186,7 @@ def _call_yuma(
     W: torch.Tensor,
     S: torch.Tensor,
     B_state: torch.Tensor | None,
+    C_state: torch.Tensor | None,
     W_prev: torch.Tensor | None,
     server_consensus_weight: torch.Tensor | None,
     case: BaseCase,
@@ -219,35 +223,44 @@ def _call_yuma(
     if yuma_version in [simulation_names.YUMA, simulation_names.YUMA_LIQUID]:
         result = Yuma(W=W, S=S, B_old=B_state, config=yuma_config)
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
+
 
     elif yuma_version == simulation_names.YUMA2:
         result = Yuma2(W=W, W_prev=W_prev, S=S, B_old=B_state, config=yuma_config)
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
         W_prev = result["weight"]
 
     elif yuma_version == simulation_names.YUMA3:
         result = Yuma3(W, S, B_old=B_state, config=yuma_config)
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA31:
         result = Yuma3(W, S, B_old=B_state, config=yuma_config)
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA32:
         result = Yuma3(W, S, B_old=B_state, config=yuma_config)
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
-        result = Yuma4(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma4(W, S, B_old=B_state, C_old=C_state, config=yuma_config)
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == "Yuma 0 (subtensor)":
         result = YumaRust(W, S, B_old=B_state, config=yuma_config)
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
+
     else:
         raise ValueError(f"Invalid Yuma function: {yuma_version}")
 
-    return result, B_state, W_prev, server_consensus_weight
+    return result, B_state, C_state, W_prev, server_consensus_weight
 
 
 def _update_validators_relative_dividends(

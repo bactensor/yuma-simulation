@@ -524,6 +524,7 @@ def Yuma4(
     W: torch.Tensor,
     S: torch.Tensor,
     B_old: torch.Tensor | None = None,
+    C_old: torch.Tensor | None = None,
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | None | float]:
     """
@@ -589,37 +590,27 @@ def Yuma4(
     T = (R / P).nan_to_num(0)  # noqa: F841
     T_v = W_clipped.sum(dim=1) / W.sum(dim=1)  # noqa: F841
 
-    # === Liquid Alpha Adjustment ===
-    a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
-    if config.liquid_alpha:
-        consensus_high = (
-            config.override_consensus_high
-            if config.override_consensus_high is not None
-            else C.quantile(0.75)
-        )
-        consensus_low = (
-            config.override_consensus_low
-            if config.override_consensus_low is not None
-            else C.quantile(0.25)
-        )
-
-        if consensus_high == consensus_low:
-            consensus_high = C.quantile(0.99)
-        if consensus_high == consensus_low:
-            consensus_high += 1e-6
-
-        a = (
-            math.log(1 / config.alpha_high - 1) - math.log(1 / config.alpha_low - 1)
-        ) / (consensus_low - consensus_high)
-        b = math.log(1 / config.alpha_low - 1) + a * consensus_low
-        alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
-
-    # === Bonds ===
+    # === Bond Initialization ====
     if B_old is None:
         B_old = torch.zeros_like(W)
 
+    # === Liquid Alpha Adjustment ===
+    bond_alpha = config.bond_alpha
+    if config.liquid_alpha and (C_old is not None):
+        buy_mask = (W >= B_old)
+        sell_mask = (W < B_old)
+
+        diff_buy = (W - C_old).abs().clamp(min=0.0, max=1.0)
+        diff_sell = (B_old - W).clamp(min=0.0, max=1.0)
+
+        combined_diff = torch.where(buy_mask, diff_buy, diff_sell)
+
+        alpha = config.alpha_high - combined_diff * (config.alpha_high - config.alpha_low)
+        alpha = alpha.clamp(config.alpha_low, config.alpha_high)
+
+        bond_alpha = 1.0 - alpha
+
+    # === Bonds ===
     B_decayed = B_old * (1 - bond_alpha)
     remaining_capacity = 1.0 - B_decayed
     remaining_capacity = torch.clamp(remaining_capacity, min=0.0)
