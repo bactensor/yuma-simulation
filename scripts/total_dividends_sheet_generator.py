@@ -1,7 +1,7 @@
 import logging
 from dataclasses import replace
 
-from yuma_simulation._internal.cases import cases
+from yuma_simulation._internal.cases import get_synthetic_cases
 from yuma_simulation._internal.simulation_utils import _generate_total_dividends_table
 from yuma_simulation._internal.logger_setup import setup_logger
 from yuma_simulation._internal.yumas import (
@@ -53,6 +53,8 @@ def main():
             # (yumas.YUMA4, base_yuma_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
+
+        cases = get_synthetic_cases(use_full_matrices=True)
 
         logger.info(
             f"Starting generation of total dividends table for bond_penalty={bond_penalty}."

@@ -1,7 +1,7 @@
 from dataclasses import replace
 import logging
 
-from yuma_simulation._internal.cases import cases
+from yuma_simulation._internal.cases import get_synthetic_cases
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
     YumaParams,
@@ -43,16 +43,18 @@ def main():
 
         yumas = YumaSimulationNames()
         yuma_versions = [
-            (yumas.YUMA_RUST, rust_yuma_params),
+            # (yumas.YUMA_RUST, base_yuma_params),
             # (yumas.YUMA, base_yuma_params),
             # (yumas.YUMA_LIQUID, liquid_alpha_on_yuma_params),
             # (yumas.YUMA2, base_yuma_params),
             # (yumas.YUMA3, base_yuma_params),
             # (yumas.YUMA31, base_yuma_params),
             # (yumas.YUMA32, base_yuma_params),
-            (yumas.YUMA4, yuma4_params),
+            # (yumas.YUMA4, yuma4_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
+
+        cases = get_synthetic_cases(use_full_matrices=True, reset_bonds=False)
 
         logger.info("Generating chart table...")
         try:

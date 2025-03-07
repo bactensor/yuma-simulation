@@ -75,8 +75,19 @@ def _run_simulation(
             dividends_per_validator=dividends_per_validator,
         )
 
-        bonds_per_epoch.append(B_state.clone())
-        server_incentives_per_epoch.append(simulation_results["server_incentive"])
+        b = B_state.clone()
+        i = simulation_results["server_incentive"].clone()
+
+        if case.use_full_matrices:
+            b, i = _slice_bond_state_and_incentives(
+                B_state=b,
+                incentives=i,
+                num_validators=len(case.validators),
+                num_servers=len(case.servers)
+            )
+
+        bonds_per_epoch.append(b)
+        server_incentives_per_epoch.append(i)
 
         _update_validators_relative_dividends(
             D_normalized=D_normalized,
@@ -153,6 +164,20 @@ def _run_dynamic_simulation(
 
         D_normalized: torch.Tensor = simulation_results["validator_reward_normalized"]
 
+        b = B_state.clone()
+        i = simulation_results["server_incentive"].clone()
+
+        if case.use_full_matrices:
+            b, i = _slice_bond_state_and_incentives(
+                B_state=b,
+                incentives=i,
+                num_validators=len(current_validators),
+                num_servers=len(case.servers)
+            )
+
+        bonds_per_epoch.append(b)
+        server_incentives_per_epoch.append(i)
+
         dividends_this_epoch = _compute_dividends_for_epoch(
             D_normalized=D_normalized,
             S=S,
@@ -165,8 +190,6 @@ def _run_dynamic_simulation(
         for i, validator in enumerate(current_validators):
             relative_dividends_this_epoch[validator] = D_normalized[i].item() - S_norm[i].item()
 
-        bonds_per_epoch.append(B_state.clone())
-        server_incentives_per_epoch.append(simulation_results["server_incentive"])
         dividends_per_epoch.append(dividends_this_epoch)
         relative_dividends_per_epoch.append(relative_dividends_this_epoch)
 
@@ -193,8 +216,9 @@ def _call_yuma(
     """
     simulation_names = YumaSimulationNames()
 
-    should_reset_bonds = ((
-        yuma_version in [
+    should_reset_bonds = (
+        case.reset_bonds and (
+        (yuma_version in [
             simulation_names.YUMA31,
             simulation_names.YUMA4,
             simulation_names.YUMA4_LIQUID,
@@ -209,10 +233,13 @@ def _call_yuma(
         and epoch == case.reset_bonds_epoch 
         and server_consensus_weight is not None 
         and server_consensus_weight[case.reset_bonds_index] == 0.0
-        )
+        ))
     )
 
-    if should_reset_bonds:
+    if should_reset_bonds and case.use_full_matrices:
+        idx = len(case.validators) + case.reset_bonds_index
+        B_state[:, idx] = 0.0
+    elif should_reset_bonds:
         B_state[:, case.reset_bonds_index] = 0.0
 
     if yuma_version in [simulation_names.YUMA, simulation_names.YUMA_LIQUID]:
@@ -348,6 +375,21 @@ def _align_bond_state(
                 new_B_state[i, j] = 0.0
     return new_B_state
 
+def _slice_bond_state_and_incentives(
+    B_state: torch.Tensor,
+    incentives: torch.Tensor,
+    num_validators: int,
+    num_servers: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Given a full bond state matrix (B_state) of shape [n_validators + n_servers, n_validators + n_servers]
+    or at least [>= n_validators, >= n_validators], 
+    and a server incentive vector (incentives) of length [n_validators + n_servers],
+    slice out the portion corresponding only to [validators, servers].
+    """
+    bonds_slice = torch.stack([row[-num_servers:] for row in B_state[:num_validators]])
+    incentives_slice = incentives[-num_servers:]
+    return bonds_slice, incentives_slice
 
 def _generate_draggable_html_table(
     table_data: dict[str, list[str]],
