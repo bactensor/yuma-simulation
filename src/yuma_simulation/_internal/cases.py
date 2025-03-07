@@ -21,20 +21,73 @@ class BaseCase:
     reset_bonds_index: int = None
     reset_bonds_epoch: int = None
     servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2"])
+    use_full_matrices: bool = False
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
-        raise NotImplementedError(
-            "Subclasses must implement the weights_epochs property."
-        )
+        """
+        Main entrypoint for getting the per-epoch weight matrices. 
+        This now delegates to `_get_base_weights_epochs()`, and if `use_full_matrices` 
+        is set, calls build_full_weights() for each epoch's matrix.
+        """
+        base_weights = self._get_base_weights_epochs
+        if self.use_full_matrices:
+            return [self.build_full_weights(W) for W in base_weights]
+        return base_weights
+
+    @property
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
+        """
+        Subclasses override this to return their 'short' weight matrices. 
+        This is purely the base, unexpanded version. 
+        """
+        raise NotImplementedError("Subclasses must implement _get_base_weights_epochs().")
+
 
     @property
     def stakes_epochs(self) -> list[torch.Tensor]:
         """
-        Default stakes for each epoch. Here we assume default stakes for validators only,
-        and then we use build_full_stakes() to pad zeros for servers.
+        Main entrypoint for getting the per-epoch stakes. 
+        Delegates to `_get_base_stakes_epochs()`, and if `use_full_matrices` 
+        is set, calls build_full_stakes().
+        """
+        base_stakes = self._get_base_stakes_epochs
+        if self.use_full_matrices:
+            return [self.build_full_stakes(S) for S in base_stakes]
+        return base_stakes
+    
+    @property
+    def _get_base_stakes_epochs(self) -> list[torch.Tensor]:
+        """
+        Subclasses override this only if they have custom stake logic. 
+        By default, it returns the 'short' [0.8,0.1,0.1] for each epoch.
         """
         return [torch.tensor([0.8, 0.1, 0.1])] * self.num_epochs
+
+    def build_full_weights(self, W_base: torch.Tensor) -> torch.Tensor:
+        """
+        Given a weight matrix for validators (of shape [n_validators, n_servers]),
+        embed it into a full square matrix of shape 
+          (n_validators + n_servers) x (n_validators + n_servers)
+        so that the validators (rows) vote only in the server columns.
+        """
+        n_validators = len(self.validators)
+        n_servers = len(self.servers)
+        total = n_validators + n_servers
+        W_full = torch.zeros(total, total)
+        # Place the base matrix in the upper-right block.
+        W_full[:n_validators, n_validators:] = W_base
+        return W_full
+
+    def build_full_stakes(self, stakes_valid: torch.Tensor) -> torch.Tensor:
+        """
+        Given a stakes vector for validators (of shape [n_validators]),
+        append zeros for the servers (miners) so that the resulting tensor has shape
+          (n_validators + n_servers,)
+        """
+        n_servers = len(self.servers)
+        zeros = torch.zeros(n_servers, dtype=stakes_valid.dtype)
+        return torch.cat([stakes_valid, zeros])
         
     def __post_init__(self):
         if self.base_validator not in self.validators:
@@ -239,7 +292,7 @@ class Case1(BaseCase):
     base_validator: str = "Big vali. (0.8)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_1 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -275,7 +328,7 @@ class Case2(BaseCase):
     base_validator: str = "Small eager vali. (0.1)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_2 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -311,7 +364,7 @@ class Case3(BaseCase):
     base_validator: str = "Small eager vali. (0.1)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_3 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -347,7 +400,7 @@ class Case4(BaseCase):
     base_validator: str = "Big vali. (0.8)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_4 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -382,7 +435,7 @@ class Case5(BaseCase):
     reset_bonds_epoch: int = 20
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_5 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -432,7 +485,7 @@ class Case6(BaseCase):
     reset_bonds_epoch: int = 21
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_6 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -475,7 +528,7 @@ class Case7(BaseCase):
     reset_bonds_epoch: int = 21
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_7 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -521,7 +574,7 @@ class Case8(BaseCase):
     reset_bonds_epoch: int = 20
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_8 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -562,7 +615,7 @@ class Case9(BaseCase):
     base_validator: str = "Big vali. (0.8)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_9 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -571,7 +624,7 @@ class Case9(BaseCase):
         return weights_epochs_case_9
 
     @property
-    def stakes_epochs(self) -> list[torch.Tensor]:
+    def _get_base_stakes_epochs(self) -> list[torch.Tensor]:
         stakes_epochs_case_9 = []
         for epoch in range(self.num_epochs):
             if 0 <= epoch <= 5:
@@ -596,7 +649,7 @@ class Case10(BaseCase):
     base_validator: str = "Small eager vali. (0.1)"
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_10 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -635,7 +688,7 @@ class Case11(BaseCase):
     reset_bonds_epoch: int = 20
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_11 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -661,7 +714,7 @@ class Case11(BaseCase):
         return weights_epochs_case_11
 
     @property
-    def stakes_epochs(self) -> list[torch.Tensor]:
+    def _get_base_stakes_epochs(self) -> list[torch.Tensor]:
         return [torch.tensor([0.49, 0.49, 0.02])] * self.num_epochs
 
 
@@ -682,7 +735,7 @@ class Case12(BaseCase):
     reset_bonds_epoch: int = 20
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_12 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -728,7 +781,7 @@ class Case13(BaseCase):
     reset_bonds_epoch: int = 20
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_13 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -755,7 +808,7 @@ class Case14(BaseCase):
     reset_bonds: bool = False
 
     @property
-    def weights_epochs(self) -> list[torch.Tensor]:
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
         weights_epochs_case_14 = []
         for epoch in range(self.num_epochs):
             W = torch.zeros(3, 2)
@@ -772,9 +825,11 @@ class Case14(BaseCase):
         return weights_epochs_case_14
 
     @property
-    def stakes_epochs(self) -> list[torch.Tensor]:
+    def _get_base_stakes_epochs(self) -> list[torch.Tensor]:
         return [torch.tensor([0.33, 0.33, 0.34])] * self.num_epochs
 
+#TODO delete only when demo simulator is adjusted to use get_synthetic_cases
 cases = [cls() for case_name, cls in class_registry.items()]
 
-
+def get_synthetic_cases(use_full_matrices: bool = False) -> list[BaseCase]:
+    return [cls(use_full_matrices=use_full_matrices) for cls in class_registry.values()]
