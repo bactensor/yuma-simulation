@@ -117,7 +117,7 @@ def YumaRust(
     B = torch.nan_to_num(B)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = 1 - config.bond_moving_avg
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -138,10 +138,10 @@ def YumaRust(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B.clone()
 
@@ -167,7 +167,7 @@ def YumaRust(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "bond_alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -234,7 +234,7 @@ def Yuma(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = 1 - config.bond_moving_avg
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -255,10 +255,10 @@ def Yuma(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B
 
@@ -281,7 +281,7 @@ def Yuma(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "bond_alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -349,7 +349,7 @@ def Yuma2(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = 1 - config.bond_moving_avg
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -370,10 +370,10 @@ def Yuma2(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B
 
@@ -396,7 +396,7 @@ def Yuma2(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "bond_alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -591,7 +591,7 @@ def Yuma4(
 
     # === Liquid Alpha Adjustment ===
     a = b = torch.tensor(float("nan"))
-    bond_alpha = 1 - config.bond_moving_avg
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -614,19 +614,19 @@ def Yuma4(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     # === Bonds ===
     if B_old is None:
         B_old = torch.zeros_like(W)
 
-    B_decayed = B_old * (1 - bond_alpha)
+    B_decayed = B_old * (1 - alpha)
     remaining_capacity = 1.0 - B_decayed
     remaining_capacity = torch.clamp(remaining_capacity, min=0.0)
 
     # Each validator can increase bonds by at most bond_alpha per epoch towards the cap
     purchase_increment = (
-        bond_alpha * W
+        alpha * W
     )  # Validators allocate their purchase across miners based on weights
     # Ensure that purchase does not exceed remaining capacity
     purchase = torch.min(purchase_increment, remaining_capacity)
