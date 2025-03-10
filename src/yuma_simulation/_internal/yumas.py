@@ -63,7 +63,11 @@ class YumaSimulationNames:
 def YumaRust(
     W: torch.Tensor,
     S: torch.Tensor,
+    num_servers: int,
+    num_validators: int,
+    use_full_matrices: bool,
     B_old: torch.Tensor | None = None,
+    C_old: torch.Tensor | None = None,
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | str | float]:
     """
@@ -119,27 +123,19 @@ def YumaRust(
 
     a = b = torch.tensor(float("nan"))
     alpha = 1 - config.bond_moving_avg
-    if config.liquid_alpha:
-        consensus_high = (
-            config.override_consensus_high
-            if config.override_consensus_high is not None
-            else C.quantile(0.75)
+    if config.liquid_alpha and (C_old is not None):
+        from .simulation_utils import _compute_liquid_alpha
+        alpha = _compute_liquid_alpha(
+            W=W,
+            B=B_old,
+            C=C_old,
+            alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
+            alpha_low=config.alpha_low,
+            alpha_high=config.alpha_high,
+            num_validators=num_validators,
+            num_servers=num_servers,
+            use_full_matrices=use_full_matrices,
         )
-        consensus_low = (
-            config.override_consensus_low
-            if config.override_consensus_low is not None
-            else C.quantile(0.25)
-        )
-
-        if consensus_high == consensus_low:
-            consensus_high = C.quantile(0.99)
-
-        a = (
-            math.log(1 / config.alpha_high - 1) - math.log(1 / config.alpha_low - 1)
-        ) / (consensus_low - consensus_high)
-        b = math.log(1 / config.alpha_low - 1) + a * consensus_low
-        alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = alpha * B + (1 - alpha) * B_old
@@ -177,7 +173,11 @@ def YumaRust(
 def Yuma(
     W: torch.Tensor,
     S: torch.Tensor,
+    num_servers: int,
+    num_validators: int,
+    use_full_matrices: bool,
     B_old: torch.Tensor | None = None,
+    C_old: torch.Tensor | None = None,
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | None | float]:
     """
@@ -236,27 +236,19 @@ def Yuma(
 
     a = b = torch.tensor(float("nan"))
     alpha = 1 - config.bond_moving_avg
-    if config.liquid_alpha:
-        consensus_high = (
-            config.override_consensus_high
-            if config.override_consensus_high is not None
-            else C.quantile(0.75)
+    if config.liquid_alpha and (C_old is not None):
+        from .simulation_utils import _compute_liquid_alpha
+        alpha = _compute_liquid_alpha(
+            W=W,
+            B=B_old,
+            C=C_old,
+            alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
+            alpha_low=config.alpha_low,
+            alpha_high=config.alpha_high,
+            num_validators=num_validators,
+            num_servers=num_servers,
+            use_full_matrices=use_full_matrices,
         )
-        consensus_low = (
-            config.override_consensus_low
-            if config.override_consensus_low is not None
-            else C.quantile(0.25)
-        )
-
-        if consensus_high == consensus_low:
-            consensus_high = C.quantile(0.99)
-
-        a = (
-            math.log(1 / config.alpha_high - 1) - math.log(1 / config.alpha_low - 1)
-        ) / (consensus_low - consensus_high)
-        b = math.log(1 / config.alpha_low - 1) + a * consensus_low
-        alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = alpha * B + (1 - alpha) * B_old
@@ -292,7 +284,11 @@ def Yuma2(
     W: torch.Tensor,
     W_prev: torch.Tensor,
     S: torch.Tensor,
+    num_servers: int,
+    num_validators: int,
+    use_full_matrices: bool,
     B_old: torch.Tensor | None = None,
+    C_old: torch.Tensor | None = None,
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | None | float]:
     """
@@ -351,27 +347,19 @@ def Yuma2(
 
     a = b = torch.tensor(float("nan"))
     alpha = 1 - config.bond_moving_avg
-    if config.liquid_alpha:
-        consensus_high = (
-            config.override_consensus_high
-            if config.override_consensus_high is not None
-            else C.quantile(0.75)
+    if config.liquid_alpha and (C_old is not None):
+        from .simulation_utils import _compute_liquid_alpha
+        alpha = _compute_liquid_alpha(
+            W=W,
+            B=B_old,
+            C=C_old,
+            alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
+            alpha_low=config.alpha_low,
+            alpha_high=config.alpha_high,
+            num_validators=num_validators,
+            num_servers=num_servers,
+            use_full_matrices=use_full_matrices,
         )
-        consensus_low = (
-            config.override_consensus_low
-            if config.override_consensus_low is not None
-            else C.quantile(0.25)
-        )
-
-        if consensus_high == consensus_low:
-            consensus_high = C.quantile(0.99)
-
-        a = (
-            math.log(1 / config.alpha_high - 1) - math.log(1 / config.alpha_low - 1)
-        ) / (consensus_low - consensus_high)
-        b = math.log(1 / config.alpha_low - 1) + a * consensus_low
-        alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
         B_ema = alpha * B + (1 - alpha) * B_old

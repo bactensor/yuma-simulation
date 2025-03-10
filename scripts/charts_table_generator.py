@@ -16,7 +16,7 @@ def main():
     logger = setup_logger("main_logger", "application.log", logging.INFO)
 
     # List of bond_penalty values and corresponding file names
-    bond_penalty_values = [0]
+    bond_penalty_values = [0, 0.5, 0.99, 1]
 
     for bond_penalty in bond_penalty_values:
         # Setting global simulation parameters
@@ -24,7 +24,7 @@ def main():
             bond_penalty=bond_penalty,
         )
 
-        file_name = f"simulation_charts_liquid_alpha2_reset_test.html"
+        file_name = f"simulation_charts_b{bond_penalty}.html"
 
         # Setting individual yuma simulations parameters
         base_yuma_params = YumaParams()

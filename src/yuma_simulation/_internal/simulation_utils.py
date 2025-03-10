@@ -254,42 +254,88 @@ def _call_yuma(
 
 
     elif yuma_version == simulation_names.YUMA2:
-        result = Yuma2(W=W, W_prev=W_prev, S=S, B_old=B_state, config=yuma_config)
+        result = Yuma2(
+            W=W,
+            W_prev=W_prev,
+            S=S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_ema_bond"]
         C_state = result["server_consensus_weight"]
         W_prev = result["weight"]
 
     elif yuma_version == simulation_names.YUMA3:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA31:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA32:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
     elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
         result = Yuma4(
-                W,
-                S,
-                B_old=B_state,
-                C_old=C_state,
-                config=yuma_config,
-                num_servers=len(case.servers),
-                num_validators=len(case.validators),
-                use_full_matrices=case.use_full_matrices
-            )
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
     elif yuma_version == "Yuma 0 (subtensor)":
-        result = YumaRust(W, S, B_old=B_state, config=yuma_config)
+        result = YumaRust(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_ema_bond"]
         C_state = result["server_consensus_weight"]
 
