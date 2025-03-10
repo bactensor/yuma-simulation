@@ -17,12 +17,13 @@ class SimulationHyperparameters:
 
 @dataclass
 class YumaParams:
-    bond_alpha: float = 0.1
+    bond_moving_avg: float = 0.1
     liquid_alpha: bool = False
     alpha_high: float = 0.9
     alpha_low: float = 0.7
     decay_rate: float = 0.1
     capacity_alpha: float = 0.1
+    alpha_sigmoid_steepness: float = 10.0
     override_consensus_high: float | None = None
     override_consensus_low: float | None = None
 
@@ -117,7 +118,7 @@ def YumaRust(
     B = torch.nan_to_num(B)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -138,10 +139,10 @@ def YumaRust(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B.clone()
 
@@ -167,7 +168,7 @@ def YumaRust(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -234,7 +235,7 @@ def Yuma(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -255,10 +256,10 @@ def Yuma(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B
 
@@ -281,7 +282,7 @@ def Yuma(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -349,7 +350,7 @@ def Yuma2(
     B = B.nan_to_num(0)
 
     a = b = torch.tensor(float("nan"))
-    bond_alpha = config.bond_alpha
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha:
         consensus_high = (
             config.override_consensus_high
@@ -370,10 +371,10 @@ def Yuma2(
         ) / (consensus_low - consensus_high)
         b = math.log(1 / config.alpha_low - 1) + a * consensus_low
         alpha = 1 / (1 + math.e ** (-a * C + b))  # alpha to the old weight
-        bond_alpha = 1 - torch.clamp(alpha, config.alpha_low, config.alpha_high)
+        alpha = torch.clamp(alpha, config.alpha_low, config.alpha_high)
 
     if B_old is not None:
-        B_ema = bond_alpha * B + (1 - bond_alpha) * B_old
+        B_ema = alpha * B + (1 - alpha) * B_old
     else:
         B_ema = B
 
@@ -396,7 +397,7 @@ def Yuma2(
         "validator_ema_bond": B_ema,
         "validator_reward": D,
         "validator_reward_normalized": D_normalized,
-        "bond_alpha": bond_alpha,
+        "alpha": alpha,
         "alpha_a": a,
         "alpha_b": b,
     }
@@ -523,6 +524,9 @@ def Yuma3(
 def Yuma4(
     W: torch.Tensor,
     S: torch.Tensor,
+    num_servers: int,
+    num_validators: int,
+    use_full_matrices: bool,
     B_old: torch.Tensor | None = None,
     C_old: torch.Tensor | None = None,
     config: YumaConfig = YumaConfig(),
@@ -544,7 +548,7 @@ def Yuma4(
     - Each Validator/Server relationship has its own relative scale of bonds, capped at 1, ensuring fairness among validators regardless of stake size.
     - Bonds are no longer directly tied to stake for their accumulation. Instead, stake is only used to calculate final dividends, decoupling the stake-bond dynamics.
     - Validators allocate bond purchases based on weights assigned to servers, reflecting their intended distribution of influence.
-    - Bonds are adjusted per epoch according to the `bond_alpha` parameter, which determines the maximum increment per epoch.
+    - Bonds are adjusted per epoch according to the `alpha` parameter, which determines the maximum increment per epoch.
     - A decay mechanism ensures that bonds for unsupported servers decrease over time.
     - The `liquid_alpha` adjustment, when enabled, dynamically adapts bond accumulation based on the consensus range of server weights, providing a more responsive and adaptive allocation mechanism.
     """
@@ -595,29 +599,29 @@ def Yuma4(
         B_old = torch.zeros_like(W)
 
     # === Liquid Alpha Adjustment ===
-    bond_alpha = config.bond_alpha
+    alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha and (C_old is not None):
-        buy_mask = (W >= B_old)
-        sell_mask = (W < B_old)
-
-        diff_buy = (W - C_old).abs().clamp(min=0.0, max=1.0)
-        diff_sell = (B_old - W).clamp(min=0.0, max=1.0)
-
-        combined_diff = torch.where(buy_mask, diff_buy, diff_sell)
-
-        alpha = config.alpha_high - combined_diff * (config.alpha_high - config.alpha_low)
-        alpha = alpha.clamp(config.alpha_low, config.alpha_high)
-
-        bond_alpha = 1.0 - alpha
+        from .simulation_utils import _compute_liquid_alpha
+        alpha = _compute_liquid_alpha(
+            W=W,
+            B=B_old,
+            C=C_old,
+            alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
+            alpha_low=config.alpha_low,
+            alpha_high=config.alpha_high,
+            num_validators=num_validators,
+            num_servers=num_servers,
+            use_full_matrices=use_full_matrices,
+        )
 
     # === Bonds ===
-    B_decayed = B_old * (1 - bond_alpha)
+    B_decayed = B_old * (1 - alpha)
     remaining_capacity = 1.0 - B_decayed
     remaining_capacity = torch.clamp(remaining_capacity, min=0.0)
 
-    # Each validator can increase bonds by at most bond_alpha per epoch towards the cap
+    # Each validator can increase bonds by at most alpha per epoch towards the cap
     purchase_increment = (
-        bond_alpha * W
+        alpha * W
     )  # Validators allocate their purchase across miners based on weights
     # Ensure that purchase does not exceed remaining capacity
     purchase = torch.min(purchase_increment, remaining_capacity)

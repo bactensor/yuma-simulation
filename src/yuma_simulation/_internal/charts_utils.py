@@ -541,6 +541,8 @@ def _plot_validator_server_weights(
     to_base64: bool = False,
 ) -> str | None:
     """Plots validator weights across servers over epochs."""
+    from .simulation_utils import _slice_tensors
+    weights_epochs = _slice_tensors(*weights_epochs, num_validators=len(validators), num_servers=len(servers))
 
     validator_styles = _get_validator_styles(validators)
 

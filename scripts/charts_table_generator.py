@@ -1,7 +1,7 @@
 from dataclasses import replace
 import logging
 
-from yuma_simulation._internal.cases import cases
+from yuma_simulation._internal.cases import get_synthetic_cases
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
     YumaParams,
@@ -16,7 +16,7 @@ def main():
     logger = setup_logger("main_logger", "application.log", logging.INFO)
 
     # List of bond_penalty values and corresponding file names
-    bond_penalty_values = [0, 0.5, 0.99, 1.0]
+    bond_penalty_values = [0]
 
     for bond_penalty in bond_penalty_values:
         # Setting global simulation parameters
@@ -24,32 +24,38 @@ def main():
             bond_penalty=bond_penalty,
         )
 
-        file_name = f"simulation_charts_b{bond_penalty}.html"
+        file_name = f"simulation_charts_liquid_alpha2_reset_test.html"
 
         # Setting individual yuma simulations parameters
         base_yuma_params = YumaParams()
+        rust_yuma_params = YumaParams(
+            bond_moving_avg=0.975,
+        )
         liquid_alpha_on_yuma_params = YumaParams(
             liquid_alpha=True,
+            alpha_sigmoid_steepness=10.0,
         )
         yuma4_params = YumaParams(
-            bond_alpha=0.025,
-            alpha_high=0.99,
-            alpha_low=0.9,
+            bond_moving_avg=0.975,
+            alpha_low=0.1,
+            alpha_high=0.3,
         )
         yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)
 
         yumas = YumaSimulationNames()
         yuma_versions = [
-            (yumas.YUMA_RUST, base_yuma_params),
+            # (yumas.YUMA_RUST, base_yuma_params),
             # (yumas.YUMA, base_yuma_params),
             # (yumas.YUMA_LIQUID, liquid_alpha_on_yuma_params),
             # (yumas.YUMA2, base_yuma_params),
             # (yumas.YUMA3, base_yuma_params),
             # (yumas.YUMA31, base_yuma_params),
             # (yumas.YUMA32, base_yuma_params),
-            (yumas.YUMA4, base_yuma_params),
+            # (yumas.YUMA4, yuma4_params),
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
+
+        cases = get_synthetic_cases(use_full_matrices=True, reset_bonds=True)
 
         logger.info("Generating chart table...")
         try:
