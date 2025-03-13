@@ -41,11 +41,7 @@ def generate_chart_table(
     current_row_count = 0
 
     for idx, case in enumerate(cases):
-        current_chart_types = chart_types or (
-            ["weights", "dividends", "bonds", "normalized_bonds", "incentives"]
-            if idx in [9, 10]
-            else ["weights", "dividends", "bonds", "normalized_bonds"]
-        )
+        current_chart_types = chart_types or case.chart_types
         case_start = current_row_count
 
         simulation_cache: dict[str, tuple] = {}

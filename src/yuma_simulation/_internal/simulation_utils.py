@@ -137,23 +137,43 @@ def _run_dynamic_simulation(
 
         current_validator_count = len(current_validators)
         current_miner_count = len(current_miner_indices)
-        should_align_bond_state = B_state is not None and (B_state.shape[0] != current_validator_count or B_state.shape[1] != current_miner_count)
+
+        should_align_bond_state = (
+            B_state is not None
+            and (B_state.shape[0] != current_validator_count or B_state.shape[1] != current_miner_count)
+        )
         if should_align_bond_state:
-                if epoch > 0:
-                    old_validators: list[str] = case.validators_epochs[epoch - 1]
-                    old_miner_indices: list[int] = case.miner_indices_epochs[epoch - 1]
-                else:
-                    old_validators, old_miner_indices = [], []
-                B_state = _align_bond_state(
-                    B_state=B_state,
-                    current_validators=current_validators,
-                    current_miner_indices=current_miner_indices,
-                    old_validators=old_validators,
-                    old_miner_indices=old_miner_indices,
-                )
+            if epoch > 0:
+                old_validators: list[str] = case.validators_epochs[epoch - 1]
+                old_miner_indices: list[int] = case.miner_indices_epochs[epoch - 1]
+            else:
+                old_validators, old_miner_indices = [], []
+            B_state = _align_bond_state(
+                B_state=B_state,
+                current_validators=current_validators,
+                current_miner_indices=current_miner_indices,
+                old_validators=old_validators,
+                old_miner_indices=old_miner_indices,
+            )
+        
+        should_align_consensus_state = (
+            C_state is not None 
+            and (C_state.shape[0] != current_miner_count)
+        )
+
+        if should_align_consensus_state:
+            if epoch > 0:
+                old_miner_indices = case.miner_indices_epochs[epoch - 1]
+            else:
+                old_miner_indices = []
+            C_state = _align_weights_consensus_state(
+                C_state=C_state,
+                current_miner_indices=current_miner_indices,
+                old_miner_indices=old_miner_indices,
+            )
 
 
-        simulation_results, B_state, W_prev, server_consensus_weight = _call_yuma(
+        simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
             yuma_version=yuma_version,
             W=W,
@@ -443,6 +463,32 @@ def _align_bond_state(
             else:
                 new_B_state[i, j] = 0.0
     return new_B_state
+
+def _align_weights_consensus_state(
+    C_state: torch.Tensor,
+    current_miner_indices: list[int],
+    old_miner_indices: list[int],
+) -> torch.Tensor:
+    """
+    Align the previous consensus state (C_state) with the current epoch's
+    miner indices. Returns a new consensus state tensor with shape
+      (len(current_miner_indices),),
+    copying over any overlapping entries from the old consensus state.
+    """
+
+    new_C_state = torch.zeros(
+        len(current_miner_indices),
+        dtype=C_state.dtype,
+        device=C_state.device,
+    )
+    for j, cur_miner in enumerate(current_miner_indices):
+        if cur_miner in old_miner_indices:
+            old_j = old_miner_indices.index(cur_miner)
+            new_C_state[j] = C_state[old_j]
+        else:
+            new_C_state[j] = 0.0
+
+    return new_C_state
 
 
 def _generate_draggable_html_table(

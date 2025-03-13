@@ -22,6 +22,7 @@ class BaseCase:
     reset_bonds_epoch: int = None
     servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2"])
     use_full_matrices: bool = False
+    chart_types: list[str] = field(default_factory=lambda: ["weights", "dividends", "bonds", "normalized_bonds"])
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
@@ -331,7 +332,7 @@ class Case2(BaseCase):
             weights_epochs_case_2.append(W)
         return weights_epochs_case_2
 
-
+    
 @register_case("Case 3")
 @dataclass
 class Case3(BaseCase):
@@ -665,6 +666,7 @@ class Case11(BaseCase):
         ]
     )
     base_validator: str = "Big vali. 1 (0.49)"
+    chart_types: list[str] = field(default_factory=lambda: ["weights", "dividends", "bonds", "normalized_bonds", "incentives"])
 
     @property
     def _get_base_weights_epochs(self) -> list[torch.Tensor]:
@@ -709,6 +711,7 @@ class Case12(BaseCase):
         ]
     )
     base_validator: str = "Big vali. (0.8)"
+    chart_types: list[str] = field(default_factory=lambda: ["weights", "dividends", "bonds", "normalized_bonds", "incentives"])
     reset_bonds: bool = True
     reset_bonds_index: int = 1
     reset_bonds_epoch: int = 20
@@ -807,7 +810,152 @@ class Case14(BaseCase):
     def _get_base_stakes_epochs(self) -> list[torch.Tensor]:
         return [torch.tensor([0.33, 0.33, 0.34])] * self.num_epochs
 
-#TODO delete only when demo simulator is adjusted to use get_synthetic_cases
+@register_case("Case 15")
+@dataclass
+class Case15(BaseCase):
+    name: str = "Case 15 - big vali moves second, stable miner gets 0.25"
+    validators: list[str] = field(
+        default_factory=lambda: [
+            "Big vali. (0.8)",
+            "Small eager vali. (0.1)",
+            "Small lazy vali. (0.1)",
+        ]
+    )
+    base_validator: str = "Small eager vali. (0.1)"
+    servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2", "Server 3"])
+    chart_types: list[str] = field(default_factory=lambda: ["weights_subplots", "dividends", "bonds", "normalized_bonds"])
+
+    @property
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
+        weights_epochs_case_15 = []
+        for epoch in range(self.num_epochs):
+            W = torch.zeros(3, 3)
+            if epoch == 0:
+                W[:, :] = torch.tensor([0.75, 0, 0.25])
+            elif epoch == 1:
+                W[0, :] = torch.tensor([0.75, 0, 0.25])
+                W[1, :] = torch.tensor([0, 0.75, 0.25])
+                W[2, :] = torch.tensor([0.75, 0, 0.25])
+            elif epoch == 2:
+                W[0, :] = torch.tensor([0, 0.75, 0.25])
+                W[1, :] = torch.tensor([0, 0.75, 0.25])
+                W[2, :] = torch.tensor([0.75, 0, 0.25])
+            else:
+                # Subsequent epochs
+                W[:, :] = torch.tensor([0, 0.75, 0.25])
+            weights_epochs_case_15.append(W)
+        return weights_epochs_case_15
+
+@register_case("Case 16")
+@dataclass
+class Case16(BaseCase):
+    name: str = "Case 16 - big vali moves second, stable miner gets 0.5"
+    validators: list[str] = field(
+        default_factory=lambda: [
+            "Big vali. (0.8)",
+            "Small eager vali. (0.1)",
+            "Small lazy vali. (0.1)",
+        ]
+    )
+    base_validator: str = "Small eager vali. (0.1)"
+    servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2", "Server 3"])
+    chart_types: list[str] = field(default_factory=lambda: ["weights_subplots", "dividends", "bonds", "normalized_bonds"])
+
+    @property
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
+        weights_epochs_case_16 = []
+        for epoch in range(self.num_epochs):
+            W = torch.zeros(3, 3)
+            if epoch == 0:
+                W[:, :] = torch.tensor([0.5, 0, 0.5])
+            elif epoch == 1:
+                W[0, :] = torch.tensor([0.5, 0, 0.5])
+                W[1, :] = torch.tensor([0, 0.5, 0.5])
+                W[2, :] = torch.tensor([0.5, 0, 0.5])
+            elif epoch == 2:
+                W[0, :] = torch.tensor([0, 0.5, 0.5])
+                W[1, :] = torch.tensor([0, 0.5, 0.5])
+                W[2, :] = torch.tensor([0.5, 0, 0.5])
+            else:
+                # Subsequent epochs
+                W[:, :] = torch.tensor([0, 0.5, 0.5])
+            weights_epochs_case_16.append(W)
+        return weights_epochs_case_16
+
+@register_case("Case 17")
+@dataclass
+class Case17(BaseCase):
+    name: str = "Case 17 - big vali moves second, stable miner gets 0.75"
+    validators: list[str] = field(
+        default_factory=lambda: [
+            "Big vali. (0.8)",
+            "Small eager vali. (0.1)",
+            "Small lazy vali. (0.1)",
+        ]
+    )
+    base_validator: str = "Small eager vali. (0.1)"
+    servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2", "Server 3"])
+    chart_types: list[str] = field(default_factory=lambda: ["weights_subplots", "dividends", "bonds", "normalized_bonds"])
+
+    @property
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
+        weights_epochs_case_17 = []
+        for epoch in range(self.num_epochs):
+            W = torch.zeros(3, 3)
+            if epoch == 0:
+                W[:, :] = torch.tensor([0.25, 0, 0.75])
+            elif epoch == 1:
+                W[0, :] = torch.tensor([0.25, 0, 0.75])
+                W[1, :] = torch.tensor([0, 0.25, 0.75])
+                W[2, :] = torch.tensor([0.25, 0, 0.75])
+            elif epoch == 2:
+                W[0, :] = torch.tensor([0, 0.25, 0.75])
+                W[1, :] = torch.tensor([0, 0.25, 0.75])
+                W[2, :] = torch.tensor([0.25, 0, 0.75])
+            else:
+                # Subsequent epochs
+                W[:, :] = torch.tensor([0, 0.25, 0.75])
+            weights_epochs_case_17.append(W)
+        return weights_epochs_case_17
+
+
+@register_case("Case 18")
+@dataclass
+class Case18(BaseCase):
+    name: str = "Case 18 - big vali moves second, stable miner gets 0.9"
+    validators: list[str] = field(
+        default_factory=lambda: [
+            "Big vali. (0.8)",
+            "Small eager vali. (0.1)",
+            "Small lazy vali. (0.1)",
+        ]
+    )
+    base_validator: str = "Small eager vali. (0.1)"
+    servers: list[str] = field(default_factory=lambda: ["Server 1", "Server 2", "Server 3"])
+    chart_types: list[str] = field(default_factory=lambda: ["weights_subplots", "dividends", "bonds", "normalized_bonds"])
+
+    @property
+    def _get_base_weights_epochs(self) -> list[torch.Tensor]:
+        weights_epochs_case_18 = []
+        for epoch in range(self.num_epochs):
+            W = torch.zeros(3, 3)
+            if epoch == 0:
+                W[:, :] = torch.tensor([0.1, 0, 0.9])
+            elif epoch == 1:
+                W[0, :] = torch.tensor([0.1, 0, 0.9])
+                W[1, :] = torch.tensor([0, 0.1, 0.9])
+                W[2, :] = torch.tensor([0.1, 0, 0.9])
+            elif epoch == 2:
+                W[0, :] = torch.tensor([0, 0.1, 0.9])
+                W[1, :] = torch.tensor([0, 0.1, 0.9])
+                W[2, :] = torch.tensor([0.1, 0, 0.9])
+            else:
+                # Subsequent epochs
+                W[:, :] = torch.tensor([0, 0.1, 0.9])
+            weights_epochs_case_18.append(W)
+        return weights_epochs_case_18
+
+
 cases = [cls() for case_name, cls in class_registry.items()]
 
 def get_synthetic_cases(use_full_matrices: bool = False, reset_bonds: bool = False) -> list[BaseCase]:

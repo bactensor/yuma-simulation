@@ -19,8 +19,8 @@ class SimulationHyperparameters:
 class YumaParams:
     bond_moving_avg: float = 0.1
     liquid_alpha: bool = False
-    alpha_high: float = 0.9
-    alpha_low: float = 0.7
+    alpha_high: float = 0.3
+    alpha_low: float = 0.1
     decay_rate: float = 0.1
     capacity_alpha: float = 0.1
     alpha_sigmoid_steepness: float = 10.0
