@@ -108,7 +108,7 @@ def _plot_dividends(
     """
 
     plt.close("all")
-    fig, ax_main = plt.subplots(figsize=(14, 6))
+    _, ax_main = plt.subplots(figsize=(14, 6))
 
     top_vals = getattr(case, "top_validators_hotkeys", [])
     if top_vals:
@@ -241,7 +241,7 @@ def _plot_relative_dividends(
         plot_validator_names = top_vals.copy()
     else:
         plot_validator_names = all_validators.copy()
-
+        
     if case.base_validator not in plot_validator_names:
         plot_validator_names.append(case.base_validator)
 
@@ -299,7 +299,11 @@ def _plot_relative_dividends(
     ax.set_ylabel("Relative Dividend (%)")
     ax.set_title(case_name)
     ax.grid(True)
-    ax.legend()
+
+    legend = ax.legend()
+    for text in legend.get_texts():
+        if text.get_text().startswith(case.shift_validator_hotkey):
+            text.set_fontweight('bold')
 
     def to_percent(y, _):
         return f"{y * 100:.1f}%"
@@ -441,7 +445,11 @@ def _plot_relative_dividends_comparisson(
     ax.set_ylabel("Absolute Difference")
     ax.set_title("Comparison (shifted - normal) scaled by stake" if use_stakes else "Comparison (shifted - normal)")
     ax.grid(True)
-    ax.legend()
+
+    legend = ax.legend()
+    for text in legend.get_texts():
+        if text.get_text().startswith(case.shift_validator_hotkey):
+            text.set_fontweight('bold')
 
     def to_percent(y, _):
         return f"{y * 100:.1f}%"

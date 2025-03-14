@@ -88,6 +88,7 @@ class MetagraphCase(BaseCase):
 
     introduce_shift: bool = False
     shift_validator_id: int = 0
+    shift_validator_hotkey: str = ""
     base_validator: str = ""
     num_epochs: int = 40
 
@@ -168,6 +169,8 @@ class MetagraphCase(BaseCase):
                 row_in_valid_indices = first_valid_indices.index(tv_id)
                 hotkey = first_validators[row_in_valid_indices]
                 self.top_validators_hotkeys.append(hotkey)
+                if tv_id == self.shift_validator_id:
+                    self.shift_validator_hotkey = hotkey
             except ValueError:
                 raise ValueError(
                     f"Top validator id {tv_id} is not present in the valid validator IDs in epoch 0."
