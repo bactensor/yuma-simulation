@@ -108,7 +108,7 @@ def _plot_dividends(
     """
 
     plt.close("all")
-    fig, ax_main = plt.subplots(figsize=(14, 6))
+    _, ax_main = plt.subplots(figsize=(14, 6))
 
     top_vals = getattr(case, "top_validators_hotkeys", [])
     if top_vals:
@@ -241,7 +241,7 @@ def _plot_relative_dividends(
         plot_validator_names = top_vals.copy()
     else:
         plot_validator_names = all_validators.copy()
-
+        
     if case.base_validator not in plot_validator_names:
         plot_validator_names.append(case.base_validator)
 
@@ -299,7 +299,11 @@ def _plot_relative_dividends(
     ax.set_ylabel("Relative Dividend (%)")
     ax.set_title(case_name)
     ax.grid(True)
-    ax.legend()
+
+    legend = ax.legend()
+    for text in legend.get_texts():
+        if text.get_text().startswith(case.shift_validator_hotkey):
+            text.set_fontweight('bold')
 
     def to_percent(y, _):
         return f"{y * 100:.1f}%"
@@ -441,7 +445,11 @@ def _plot_relative_dividends_comparisson(
     ax.set_ylabel("Absolute Difference")
     ax.set_title("Comparison (shifted - normal) scaled by stake" if use_stakes else "Comparison (shifted - normal)")
     ax.grid(True)
-    ax.legend()
+
+    legend = ax.legend()
+    for text in legend.get_texts():
+        if text.get_text().startswith(case.shift_validator_hotkey):
+            text.set_fontweight('bold')
 
     def to_percent(y, _):
         return f"{y * 100:.1f}%"
@@ -541,6 +549,8 @@ def _plot_validator_server_weights(
     to_base64: bool = False,
 ) -> str | None:
     """Plots validator weights across servers over epochs."""
+    from .simulation_utils import _slice_tensors
+    weights_epochs = _slice_tensors(*weights_epochs, num_validators=len(validators), num_servers=len(servers))
 
     validator_styles = _get_validator_styles(validators)
 
@@ -631,6 +641,96 @@ def _plot_validator_server_weights(
 
     if to_base64:
         return _plot_to_base64()
+    plt.show()
+    return None
+
+
+def _plot_validator_server_weights_subplots(
+    validators: list[str],
+    weights_epochs: list[torch.Tensor],
+    servers: list[str],
+    num_epochs: int,
+    case_name: str,
+    to_base64: bool = False,
+) -> str | None:
+    """
+    Plots validator weights in subplots (one subplot per server) over epochs.
+    Each subplot shows lines for all validators, representing how much weight
+    they allocate to that server from epoch 0..num_epochs-1.
+    """
+    from .simulation_utils import _slice_tensors
+    weights_epochs = _slice_tensors(
+        *weights_epochs, 
+        num_validators=len(validators), 
+        num_servers=len(servers)
+    )
+
+    x = list(range(num_epochs))
+
+    fig, axes = plt.subplots(
+        1, 
+        len(servers), 
+        figsize=(14, 5), 
+        sharex=True, 
+        sharey=True
+    )
+
+    if len(servers) == 1:
+        axes = [axes]
+
+    validator_styles = _get_validator_styles(validators)
+
+    handles: list[plt.Artist] = []
+    labels: list[str] = []
+
+    for idx_s, server_name in enumerate(servers):
+        ax = axes[idx_s]
+        for idx_v, validator in enumerate(validators):
+            y_values = [
+                float(weights_epochs[epoch][idx_v][idx_s].item())
+                for epoch in range(num_epochs)
+            ]
+            linestyle, marker, markersize, markeredgewidth = validator_styles[validator]
+
+            (line,) = ax.plot(
+                x,
+                y_values,
+                alpha=0.7,
+                marker=marker,
+                markersize=markersize,
+                markeredgewidth=markeredgewidth,
+                linestyle=linestyle,
+                linewidth=2,
+                label=validator,
+            )
+
+            if idx_s == 0:
+                handles.append(line)
+                labels.append(validator)
+
+        _set_default_xticks(ax, num_epochs)
+
+        ax.set_xlabel("Epoch")
+        if idx_s == 0:
+            ax.set_ylabel("Validator Weight")
+        ax.set_title(server_name)
+        ax.set_ylim(0, 1.05)
+        ax.grid(True)
+
+    fig.suptitle(f"Validators' Weights per Server\n{case_name}", fontsize=14)
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=len(validators),
+        bbox_to_anchor=(0.5, 0.02),
+    )
+
+    plt.tight_layout(rect=(0, 0.07, 1, 0.95))
+
+    if to_base64:
+        return _plot_to_base64()
+
     plt.show()
     return None
 
@@ -753,6 +853,15 @@ def _generate_chart_for_type(
     """
     if chart_type == "weights":
         return _plot_validator_server_weights(
+            validators=case.validators,
+            weights_epochs=case.weights_epochs,
+            servers=case.servers,
+            num_epochs=case.num_epochs,
+            case_name=final_case_name,
+            to_base64=to_base64,
+        )
+    elif chart_type == "weights_subplots":
+        return  _plot_validator_server_weights_subplots(
             validators=case.validators,
             weights_epochs=case.weights_epochs,
             servers=case.servers,

@@ -45,6 +45,7 @@ def _run_simulation(
 
     # These states are passed between epochs.
     B_state: torch.Tensor | None = None
+    C_state: torch.Tensor | None = None
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
@@ -53,16 +54,17 @@ def _run_simulation(
         W: torch.Tensor = case.weights_epochs[epoch]
         S: torch.Tensor = case.stakes_epochs[epoch]
 
-        simulation_results, B_state, W_prev, server_consensus_weight = _call_yuma(
+        simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
             yuma_version=yuma_version,
             W=W,
             S=S,
             B_state=B_state,
+            C_state=C_state,
             W_prev=W_prev,
             server_consensus_weight=server_consensus_weight,
             case=case,
-            yuma_config=yuma_config
+            yuma_config=yuma_config,
         )
 
         D_normalized: torch.Tensor = simulation_results["validator_reward_normalized"]
@@ -79,9 +81,9 @@ def _run_simulation(
         i = simulation_results["server_incentive"].clone()
 
         if case.use_full_matrices:
-            b, i = _slice_bond_state_and_incentives(
-                B_state=b,
-                incentives=i,
+            b, i = _slice_tensors(
+                b,
+                i,
                 num_validators=len(case.validators),
                 num_servers=len(case.servers)
             )
@@ -123,6 +125,7 @@ def _run_dynamic_simulation(
 
     # These states are passed between epochs.
     B_state: torch.Tensor | None = None
+    C_state: torch.Tensor | None = None
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
@@ -134,28 +137,49 @@ def _run_dynamic_simulation(
 
         current_validator_count = len(current_validators)
         current_miner_count = len(current_miner_indices)
-        should_align_bond_state = B_state is not None and (B_state.shape[0] != current_validator_count or B_state.shape[1] != current_miner_count)
+
+        should_align_bond_state = (
+            B_state is not None
+            and (B_state.shape[0] != current_validator_count or B_state.shape[1] != current_miner_count)
+        )
         if should_align_bond_state:
-                if epoch > 0:
-                    old_validators: list[str] = case.validators_epochs[epoch - 1]
-                    old_miner_indices: list[int] = case.miner_indices_epochs[epoch - 1]
-                else:
-                    old_validators, old_miner_indices = [], []
-                B_state = _align_bond_state(
-                    B_state=B_state,
-                    current_validators=current_validators,
-                    current_miner_indices=current_miner_indices,
-                    old_validators=old_validators,
-                    old_miner_indices=old_miner_indices,
-                )
+            if epoch > 0:
+                old_validators: list[str] = case.validators_epochs[epoch - 1]
+                old_miner_indices: list[int] = case.miner_indices_epochs[epoch - 1]
+            else:
+                old_validators, old_miner_indices = [], []
+            B_state = _align_bond_state(
+                B_state=B_state,
+                current_validators=current_validators,
+                current_miner_indices=current_miner_indices,
+                old_validators=old_validators,
+                old_miner_indices=old_miner_indices,
+            )
+        
+        should_align_consensus_state = (
+            C_state is not None 
+            and (C_state.shape[0] != current_miner_count)
+        )
+
+        if should_align_consensus_state:
+            if epoch > 0:
+                old_miner_indices = case.miner_indices_epochs[epoch - 1]
+            else:
+                old_miner_indices = []
+            C_state = _align_weights_consensus_state(
+                C_state=C_state,
+                current_miner_indices=current_miner_indices,
+                old_miner_indices=old_miner_indices,
+            )
 
 
-        simulation_results, B_state, W_prev, server_consensus_weight = _call_yuma(
+        simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
             yuma_version=yuma_version,
             W=W,
             S=S,
             B_state=B_state,
+            C_state=C_state,
             W_prev=W_prev,
             server_consensus_weight=server_consensus_weight,
             case=case,
@@ -168,9 +192,9 @@ def _run_dynamic_simulation(
         i = simulation_results["server_incentive"].clone()
 
         if case.use_full_matrices:
-            b, i = _slice_bond_state_and_incentives(
-                B_state=b,
-                incentives=i,
+            b, i = _slice_tensors(
+                b,
+                i,
                 num_validators=len(current_validators),
                 num_servers=len(case.servers)
             )
@@ -205,6 +229,7 @@ def _call_yuma(
     W: torch.Tensor,
     S: torch.Tensor,
     B_state: torch.Tensor | None,
+    C_state: torch.Tensor | None,
     W_prev: torch.Tensor | None,
     server_consensus_weight: torch.Tensor | None,
     case: BaseCase,
@@ -216,8 +241,9 @@ def _call_yuma(
     """
     simulation_names = YumaSimulationNames()
 
-    should_reset_bonds = ((
-        yuma_version in [
+    should_reset_bonds = (
+        case.reset_bonds and (
+        (yuma_version in [
             simulation_names.YUMA31,
             simulation_names.YUMA4,
             simulation_names.YUMA4_LIQUID,
@@ -232,7 +258,7 @@ def _call_yuma(
         and epoch == case.reset_bonds_epoch 
         and server_consensus_weight is not None 
         and server_consensus_weight[case.reset_bonds_index] == 0.0
-        )
+        ))
     )
 
     if should_reset_bonds and case.use_full_matrices:
@@ -244,35 +270,99 @@ def _call_yuma(
     if yuma_version in [simulation_names.YUMA, simulation_names.YUMA_LIQUID]:
         result = Yuma(W=W, S=S, B_old=B_state, config=yuma_config)
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
+
 
     elif yuma_version == simulation_names.YUMA2:
-        result = Yuma2(W=W, W_prev=W_prev, S=S, B_old=B_state, config=yuma_config)
+        result = Yuma2(
+            W=W,
+            W_prev=W_prev,
+            S=S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
         W_prev = result["weight"]
 
     elif yuma_version == simulation_names.YUMA3:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA31:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == simulation_names.YUMA32:
-        result = Yuma3(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma3(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version in [simulation_names.YUMA4, simulation_names.YUMA4_LIQUID]:
-        result = Yuma4(W, S, B_old=B_state, config=yuma_config)
+        result = Yuma4(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_bonds"]
+        C_state = result["server_consensus_weight"]
 
     elif yuma_version == "Yuma 0 (subtensor)":
-        result = YumaRust(W, S, B_old=B_state, config=yuma_config)
+        result = YumaRust(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
         B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
+
     else:
         raise ValueError(f"Invalid Yuma function: {yuma_version}")
 
-    return result, B_state, W_prev, server_consensus_weight
+    return result, B_state, C_state, W_prev, server_consensus_weight
 
 
 def _update_validators_relative_dividends(
@@ -374,21 +464,32 @@ def _align_bond_state(
                 new_B_state[i, j] = 0.0
     return new_B_state
 
-def _slice_bond_state_and_incentives(
-    B_state: torch.Tensor,
-    incentives: torch.Tensor,
-    num_validators: int,
-    num_servers: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+def _align_weights_consensus_state(
+    C_state: torch.Tensor,
+    current_miner_indices: list[int],
+    old_miner_indices: list[int],
+) -> torch.Tensor:
     """
-    Given a full bond state matrix (B_state) of shape [n_validators + n_servers, n_validators + n_servers]
-    or at least [>= n_validators, >= n_validators], 
-    and a server incentive vector (incentives) of length [n_validators + n_servers],
-    slice out the portion corresponding only to [validators, servers].
+    Align the previous consensus state (C_state) with the current epoch's
+    miner indices. Returns a new consensus state tensor with shape
+      (len(current_miner_indices),),
+    copying over any overlapping entries from the old consensus state.
     """
-    bonds_slice = torch.stack([row[-num_servers:] for row in B_state[:num_validators]])
-    incentives_slice = incentives[-num_servers:]
-    return bonds_slice, incentives_slice
+
+    new_C_state = torch.zeros(
+        len(current_miner_indices),
+        dtype=C_state.dtype,
+        device=C_state.device,
+    )
+    for j, cur_miner in enumerate(current_miner_indices):
+        if cur_miner in old_miner_indices:
+            old_j = old_miner_indices.index(cur_miner)
+            new_C_state[j] = C_state[old_j]
+        else:
+            new_C_state[j] = 0.0
+
+    return new_C_state
+
 
 def _generate_draggable_html_table(
     table_data: dict[str, list[str]],
@@ -796,12 +897,17 @@ def _get_final_case_name(case: BaseCase, yuma_version: str, yuma_config: YumaCon
     Returns a formatted case name based on the yuma version and configuration.
     """
     yuma_names = YumaSimulationNames()
+    final_yuma_name = ""
     if yuma_version in [yuma_names.YUMA, yuma_names.YUMA_LIQUID, yuma_names.YUMA2]:
-        return f"{case.name} - beta={yuma_config.bond_penalty}"
+        final_yuma_name = f"{case.name} - beta={yuma_config.bond_penalty}"
     elif yuma_version == yuma_names.YUMA4_LIQUID:
-        return f"{case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
+        final_yuma_name = f"{case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
     else:
-        return f"{case.name} - {yuma_version}"
+        final_yuma_name = f"{case.name} - {yuma_version}"
+    
+    if case.reset_bonds:
+        return final_yuma_name + " + bonds reset"
+    return final_yuma_name
 
 
 def _get_final_case_names_dynamic(
@@ -822,3 +928,82 @@ def _get_final_case_names_dynamic(
         final_case_name_normal = f"{normal_case.name} - {yuma_version}"
         final_case_name_shifted = f"{shifted_case.name} - {yuma_version}"
     return final_case_name_normal, final_case_name_shifted
+
+def _slice_tensors(
+    *tensors: torch.Tensor,
+    num_validators: int,
+    num_servers: int,
+) -> tuple[torch.Tensor]:
+    """
+    Applies a uniform slicing rule to each provided tensor:
+    """
+    sliced_tensors = []
+    for tensor in tensors:
+        if tensor.dim() == 1:
+            sliced_tensors.append(tensor[-num_servers:])
+        elif tensor.dim() == 2:
+            sliced_tensors.append(tensor[:num_validators, -num_servers:])
+        else:
+            raise ValueError(f"Unsupported tensor dimension: {tensor.dim()}. Only 1D or 2D allowed.")
+    return tuple(sliced_tensors)
+
+def full_matrices(func):
+    def wrapper(
+        W: torch.Tensor,
+        B: torch.Tensor,
+        C: torch.Tensor,
+        alpha_sigmoid_steepness: float,
+        alpha_low: float,
+        alpha_high: float,
+        num_validators: int,
+        num_servers: int,
+        use_full_matrices: bool,
+        ):
+        if use_full_matrices:
+            W_slice, B_slice, C_slice = _slice_tensors(W, B, C,
+                                                       num_validators=num_validators,
+                                                       num_servers=num_servers)
+        else:
+            W_slice, B_slice, C_slice = W, B, C
+
+        alpha_slice = func(W_slice, B_slice, C_slice, alpha_sigmoid_steepness, alpha_low, alpha_high)
+
+        if use_full_matrices:
+            alpha_full = torch.full_like(W, fill_value=0.0)
+            alpha_full[:num_validators, -num_servers:] = alpha_slice
+            return alpha_full
+        return alpha_slice
+    return wrapper
+
+@full_matrices
+def _compute_liquid_alpha(
+    W: torch.tensor,
+    B: torch.tensor,
+    C: torch.tensor,
+    alpha_sigmoid_steepness: float,
+    alpha_low: float,
+    alpha_high: float,
+    ):
+    """
+    Liquid alpha is computed using a combination of previous epoch consensus weights, previous epoch bonds, and current epoch weights.
+
+    Buying Bonds:
+    When the current epoch weights exceed the previous epoch bonds, it indicates that the validator intends to purchase bonds.
+    The greater the discrepancy between the current weights and the previous epoch consensus weights, the more Liquid Alpha 2.0 will shift toward the alpha low value, facilitating faster bond acquisition.
+
+    Selling Bonds:
+    When the current epoch weights are lower than the previous epoch bonds, it signals that the validator aims to sell bonds.
+    The larger the difference between the current epoch weights and the previous epoch bonds, the more Liquid Alpha 2.0 will adjust toward the alpha low value, enabling faster bond liquidation.
+    """
+    buy_mask = (W >= B)
+    sell_mask = (W < B)
+    
+    diff_buy = (W - C).clamp(min=0.0, max=1.0)
+    diff_sell = (B - W).clamp(min=0.0, max=1.0)
+    
+    combined_diff = torch.where(buy_mask, diff_buy, diff_sell)
+    
+    combined_diff = 1.0 / (1.0 + torch.exp(-alpha_sigmoid_steepness * (combined_diff - 0.5)))
+    
+    alpha_slice = alpha_low + combined_diff * (alpha_high - alpha_low)
+    return alpha_slice.clamp(alpha_low, alpha_high)
