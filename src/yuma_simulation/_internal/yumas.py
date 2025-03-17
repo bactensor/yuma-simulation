@@ -1,9 +1,15 @@
 import math
 from dataclasses import asdict, dataclass, field
 from typing import Optional, Dict, Union
+from typing import Literal
 
 import torch
 
+liquid_alpha_mode_map = {
+    "CURRENT": lambda C, C_old: C,
+    "PREVIOUS": lambda C, C_old: C_old,
+    "MIXED": lambda C, C_old: torch.max(C, C_old),
+}
 
 @dataclass
 class SimulationHyperparameters:
@@ -13,7 +19,7 @@ class SimulationHyperparameters:
     validator_emission_ratio: float = 0.41
     total_subnet_stake: float = 1_000_000.0
     consensus_precision: int = 100_000
-
+    liquid_alpha_consensus_mode: Literal["CURRENT", "PREVIOUS", "MIXED"] = "CURRENT"
 
 @dataclass
 class YumaParams:
@@ -128,7 +134,7 @@ def YumaRust(
         alpha = _compute_liquid_alpha(
             W=W,
             B=B_old,
-            C=C_old,
+            C=C,
             alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
             alpha_low=config.alpha_low,
             alpha_high=config.alpha_high,
@@ -241,7 +247,7 @@ def Yuma(
         alpha = _compute_liquid_alpha(
             W=W,
             B=B_old,
-            C=C_old,
+            C=C,
             alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
             alpha_low=config.alpha_low,
             alpha_high=config.alpha_high,
@@ -352,7 +358,7 @@ def Yuma2(
         alpha = _compute_liquid_alpha(
             W=W,
             B=B_old,
-            C=C_old,
+            C=C,
             alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
             alpha_low=config.alpha_low,
             alpha_high=config.alpha_high,
@@ -590,10 +596,15 @@ def Yuma4(
     alpha = 1 - config.bond_moving_avg
     if config.liquid_alpha and (C_old is not None):
         from .simulation_utils import _compute_liquid_alpha
+
+        # This logic is only for simulation purposes, not a Rust Yuma implemenation reference
+        liquid_alpha_C = liquid_alpha_mode_map[config.liquid_alpha_consensus_mode](C, C_old)
+        # This logic is only for simulation purposes, not a Rust Yuma implemenation reference
+
         alpha = _compute_liquid_alpha(
             W=W,
             B=B_old,
-            C=C_old,
+            C=liquid_alpha_C,
             alpha_sigmoid_steepness=config.alpha_sigmoid_steepness,
             alpha_low=config.alpha_low,
             alpha_high=config.alpha_high,
