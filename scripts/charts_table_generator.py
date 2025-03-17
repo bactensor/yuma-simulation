@@ -16,7 +16,7 @@ def main():
     logger = setup_logger("main_logger", "application.log", logging.INFO)
 
     # List of bond_penalty values and corresponding file names
-    bond_penalty_values = [0, 0.5, 0.99, 1.0]
+    bond_penalty_values = [0, 0.5, 0.99, 1]
 
     for bond_penalty in bond_penalty_values:
         # Setting global simulation parameters
@@ -33,11 +33,12 @@ def main():
         )
         liquid_alpha_on_yuma_params = YumaParams(
             liquid_alpha=True,
+            alpha_sigmoid_steepness=10.0,
         )
         yuma4_params = YumaParams(
             bond_moving_avg=0.975,
-            alpha_high=0.1,
-            alpha_low=0.3,
+            alpha_low=0.1,
+            alpha_high=0.3,
         )
         yuma4_liquid_params = replace(yuma4_params, liquid_alpha=True)
 
@@ -54,7 +55,7 @@ def main():
             (yumas.YUMA4_LIQUID, yuma4_liquid_params),
         ]
 
-        cases = get_synthetic_cases(use_full_matrices=True, reset_bonds=False)
+        cases = get_synthetic_cases(use_full_matrices=True, reset_bonds=True)
 
         logger.info("Generating chart table...")
         try:

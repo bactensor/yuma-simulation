@@ -11,14 +11,14 @@
     "scenarios": [
       {
         "subnet_id": 9,
-        "epochs": 30,
+        "epochs": 180,
         "tempo": 360,
         "shift_validator_id": 244,
         "top_validators": [109, 238, 244]
       },
       {
         "subnet_id": 15,
-        "epochs": 30,
+        "epochs": 180,
         "tempo": 360,
         "start_block_offset": 14400,
         "shift_validator_id": 2,
@@ -72,14 +72,14 @@
       {
         "name": "YUMA_RUST",
         "params": {
-          "bond_alpha": 0.025,
+          "bond_moving_avg": 0.975,
           "liquid_alpha": false
         }
       },
       {
         "name": "YUMA4",
         "params": {
-          "bond_alpha": 0.025,
+          "bond_moving_avg": 0.975,
           "liquid_alpha": true
         }
       }
