@@ -59,11 +59,11 @@ class YumaSimulationNames:
     YUMA: str = "Yuma 1 (paper)"
     YUMA_LIQUID: str = "Yuma 1 (paper) - liquid alpha on"
     YUMA2: str = "Yuma 2 (Adrian-Fish)"
-    YUMA3: str = "Yuma 3 (Rhef)"
-    YUMA31: str = "Yuma 3.1 (Rhef+reset)"
-    YUMA32: str = "Yuma 3.2 (Rhef+conditional)"
-    YUMA4: str = "Yuma 4 (Rhef+relative bonds)"
-    YUMA4_LIQUID: str = "Yuma 4 (Rhef+relative bonds) - liquid alpha on"
+    YUMA2B: str = "Yuma 2B (Rhef)"
+    YUMA21B: str = "Yuma 2.1B (Rhef+reset)"
+    YUMA22B: str = "Yuma 2.2B (Rhef+conditional)"
+    YUMA3: str = "Yuma 3 (Rhef+relative bonds)"
+    YUMA3_LIQUID: str = "Yuma 3 (Rhef+relative bonds) - liquid alpha on"
 
 
 def YumaRust(
@@ -397,7 +397,7 @@ def Yuma2(
     }
 
 
-def Yuma3(
+def Yuma2b(
     W: torch.Tensor,
     S: torch.Tensor,
     B_old: Optional[torch.Tensor] = None,
@@ -405,17 +405,17 @@ def Yuma3(
     maxint: int = 2**64 - 1,
 ) -> Dict[str, Union[torch.Tensor | None, float]]:
     """
-    Implements the Yuma3 algorithm for managing validator bonds, weights, and incentives
+    Implements the Yuma2B algorithm for managing validator bonds, weights, and incentives
     in a decentralized system.
 
-    Yuma3 addresses the shortcomings of the Yuma2 algorithm, which does not solve the
+    Yuma2B addresses the shortcomings of the Yuma2 algorithm, which does not solve the
     problem of weight clipping influencing bonds effectively. Yuma2 assumes that the
     "Big Validator" will allocate weights to the "new best" server in the next epoch
     after it is discovered by the "Small Validators." However, this leads to a drop in
     the bonds of the "Small Validators" after the next epoch, highlighting the need for
     a more robust solution.
 
-    Yuma3 introduces a robust bond accumulation mechanism that allows validators to accrue
+    Yuma2B introduces a robust bond accumulation mechanism that allows validators to accrue
     bonds over time. This mitigates the issues caused by weight clipping influencing bonds
     and ensures sustained validator engagement by tying bond accrual to stake and weights.
 
@@ -515,7 +515,7 @@ def Yuma3(
         "validator_reward_normalized": D_normalized,
     }
 
-def Yuma4(
+def Yuma3(
     W: torch.Tensor,
     S: torch.Tensor,
     num_servers: int,
@@ -526,17 +526,17 @@ def Yuma4(
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | None | float]:
     """
-    Implements the Yuma4 algorithm for managing validator bonds, weights, and incentives
+    Implements the Yuma3 algorithm for managing validator bonds, weights, and incentives
     in a decentralized system.
 
-    Yuma4 addresses the shortcomings of the Yuma3 algorithm, which does not resolve the
+    Yuma3 addresses the shortcomings of the Yuma2B algorithm, which does not resolve the
     problem of stake dynamics differences between validators concerning their bonds. The case 9 scenario shows that
     when a validator reaches its maximum bond cap and subsequently increases its stake relative to other validators,
     its bonds will not scale proportionally with its stake. This results in reduced dividends compared to other validators.
 
-    Yuma4 adjusts the bond accumulation mechanism to ensure that each Validator/Server relationship has its own relative scale of bonds, capped at 1.
+    Yuma3 adjusts the bond accumulation mechanism to ensure that each Validator/Server relationship has its own relative scale of bonds, capped at 1.
     Stake is no longer considered when calculating bonds but is only used to calculate the final dividends.
-    This resolves the stake-bond dynamic issues caused by the Yuma3 implementation.
+    This resolves the stake-bond dynamic issues caused by the Yuma2B implementation.
 
     Key Features:
     - Each Validator/Server relationship has its own relative scale of bonds, capped at 1, ensuring fairness among validators regardless of stake size.

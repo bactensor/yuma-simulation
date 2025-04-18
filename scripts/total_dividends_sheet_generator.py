@@ -51,7 +51,7 @@ def main():
             # (yumas.YUMA31, base_yuma_params),
             # (yumas.YUMA32, base_yuma_params),
             # (yumas.YUMA4, base_yuma_params),
-            (yumas.YUMA4_LIQUID, yuma4_liquid_params),
+            (yumas.YUMA3_LIQUID, yuma4_liquid_params),
         ]
 
         cases = get_synthetic_cases(use_full_matrices=True)

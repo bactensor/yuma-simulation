@@ -7,6 +7,9 @@ import base64
 import io
 import logging
 
+import matplotlib
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -108,7 +111,7 @@ def _plot_dividends(
     """
 
     plt.close("all")
-    _, ax_main = plt.subplots(figsize=(14, 6))
+    fig, ax_main = plt.subplots(figsize=(14, 6))
 
     top_vals = getattr(case, "top_validators_hotkeys", [])
     if top_vals:
@@ -197,9 +200,10 @@ def _plot_dividends(
     plt.subplots_adjust(hspace=0.3)
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
     else:
         plt.show()
+        plt.close(fig)
         return None
 
 
@@ -227,7 +231,7 @@ def _plot_relative_dividends(
         logger.warning("Epochs padding is too large relative to num_epochs. Nothing to plot.")
         return None
 
-    _, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
+    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
 
     if not validators_relative_dividends:
         logger.warning("No validator data to plot.")
@@ -312,9 +316,10 @@ def _plot_relative_dividends(
     plt.subplots_adjust(hspace=0.3)
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
     else: 
         plt.show()
+        plt.close(fig)
         return None
 
 
@@ -345,7 +350,7 @@ def _plot_relative_dividends_comparisson(
         logger.warning("Epochs padding is too large relative to number of total epochs. Nothing to plot.")
         return None
 
-    _, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
+    fig, ax = plt.subplots(figsize=(14 * 2, 6 * 2))
 
     if not validators_relative_dividends_normal or not validators_relative_dividends_shifted:
         logger.warning("No validator data to plot.")
@@ -458,9 +463,10 @@ def _plot_relative_dividends_comparisson(
     plt.subplots_adjust(hspace=0.3)
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
     else:
         plt.show()
+        plt.close(fig)
         return None
 
 
@@ -534,9 +540,10 @@ def _plot_bonds(
     plt.tight_layout(rect=(0, 0.05, 0.98, 0.95))
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
 
     plt.show()
+    plt.close(fig)
     return None
 
 
@@ -640,8 +647,9 @@ def _plot_validator_server_weights(
     ax.grid(True)
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
     plt.show()
+    plt.close(fig)
     return None
 
 
@@ -729,9 +737,10 @@ def _plot_validator_server_weights_subplots(
     plt.tight_layout(rect=(0, 0.07, 1, 0.95))
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
 
     plt.show()
+    plt.close(fig)
     return None
 
 
@@ -745,7 +754,7 @@ def _plot_incentives(
     """Generates a plot of server incentives over epochs."""
 
     x = np.arange(num_epochs)
-    _, ax = plt.subplots(figsize=(14, 3))
+    fig, ax = plt.subplots(figsize=(14, 3))
 
     for idx_s, server in enumerate(servers):
         incentives: list[float] = [
@@ -764,20 +773,20 @@ def _plot_incentives(
     ax.grid(True)
 
     if to_base64:
-        return _plot_to_base64()
+        return _plot_to_base64(fig)
     plt.show()
+    plt.close(fig)
     return None
 
-
-def _plot_to_base64() -> str:
-    """Converts a Matplotlib plot to a Base64-encoded string."""
+def _plot_to_base64(fig: plt.Figure) -> str:
+    """Converts a Matplotlib figure to a Base64-encoded string."""
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", transparent=True, bbox_inches="tight", dpi=100)
+    fig.savefig(buf, format="png", transparent=True, bbox_inches="tight", dpi=100)
     buf.seek(0)
     encoded_image = base64.b64encode(buf.read()).decode("ascii")
     buf.close()
-    plt.close()
+    plt.close(fig)
     return f'<img src="data:image/png;base64,{encoded_image}" style="max-width:1200px; height:auto;" draggable="false">'
 
 

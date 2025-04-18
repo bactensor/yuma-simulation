@@ -77,7 +77,7 @@ def run_single_scenario(args: Namespace) -> None:
                 logger.info(f"Simulation results saved to {file_name}")
 
         except Exception as e:
-            logger.error(f"Error generating the chart table: {e}")
+            logger.error(f"Error generating the chart table: {e}", exc_info=True)
         
     if args.generate_dividends_table:
         file_name_csv = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_dividends_framed_table.csv"
