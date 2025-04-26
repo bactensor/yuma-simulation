@@ -14,5 +14,5 @@ media/
 .terraform/
 .nox/
 results/
-.metagraphs/
+metagraphs/
 __pycache__
