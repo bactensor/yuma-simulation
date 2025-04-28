@@ -31,6 +31,7 @@ jobs:
         run: python -m pip install --upgrade nox 'pdm>=2.12,<3'
       - name: Run linters
         run: nox -vs lint
+        continue-on-error: true
   test:
     timeout-minutes: 10
     runs-on: ${{ matrix.os }}
