@@ -1,17 +1,20 @@
 import pandas as pd
+import logging
 from IPython.display import HTML
 
 from yuma_simulation._internal.cases import BaseCase
 from yuma_simulation._internal.charts_utils import (
-    _plot_bonds,
-    _plot_dividends,
-    _plot_incentives,
-    _plot_validator_server_weights,
+    _plot_relative_dividends,
+    _plot_relative_dividends_comparisson,
+    _generate_chart_for_type,
 )
 from yuma_simulation._internal.simulation_utils import (
     _generate_draggable_html_table,
     _generate_ipynb_table,
-    run_simulation,
+    _run_simulation,
+    _run_dynamic_simulation,
+    _get_final_case_name,
+    _get_final_case_names_dynamic,
 )
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
@@ -20,110 +23,151 @@ from yuma_simulation._internal.yumas import (
     YumaSimulationNames,
 )
 
+logger = logging.getLogger("main_logger")
+
 
 def generate_chart_table(
     cases: list[BaseCase],
     yuma_versions: list[tuple[str, YumaParams]],
     yuma_hyperparameters: SimulationHyperparameters,
     draggable_table: bool = False,
+    chart_types: list[str] | None = None,
 ) -> HTML:
-    table_data: dict[str, list[str]] = {
-        yuma_version: [] for yuma_version, _ in yuma_versions
-    }
-
-    def process_chart(table_data: dict[str, list[str]], chart_base64_dict: dict[str, str]) -> None:
-        for yuma_version, chart_base64 in chart_base64_dict.items():
-            table_data[yuma_version].append(chart_base64)
-
+    """
+    Generates an HTML table of charts for a list of cases across different yuma versions.
+    """
+    table_data: dict[str, list[str]] = {yuma_version: [] for yuma_version, _ in yuma_versions}
     case_row_ranges = []
     current_row_count = 0
 
     for idx, case in enumerate(cases):
-        if idx in [9, 10]:
-            chart_types = ["weights", "dividends", "bonds", "normalized_bonds", "incentives"]
-        else:
-            chart_types = ["weights", "dividends", "bonds", "normalized_bonds"]
-
+        current_chart_types = chart_types or case.chart_types
         case_start = current_row_count
-        for chart_type in chart_types:
-            chart_base64_dict: dict[str, str] = {}
+
+        simulation_cache: dict[str, tuple] = {}
+
+        for chart_type in current_chart_types:
+            chart_row: dict[str, str] = {}
             for yuma_version, yuma_params in yuma_versions:
                 yuma_config = YumaConfig(simulation=yuma_hyperparameters, yuma_params=yuma_params)
-                yuma_names = YumaSimulationNames()
-                full_case_name = f"{case.name} - {yuma_version}"
-                if yuma_version in [yuma_names.YUMA, yuma_names.YUMA_LIQUID, yuma_names.YUMA2]:
-                    full_case_name = f"{full_case_name} - beta={yuma_config.bond_penalty}"
-                elif yuma_version == yuma_names.YUMA4_LIQUID:
-                    full_case_name = f"{full_case_name} [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
+                final_case_name = _get_final_case_name(case, yuma_version, yuma_config)
 
-                (
-                    dividends_per_validator,
-                    bonds_per_epoch,
-                    server_incentives_per_epoch,
-                ) = run_simulation(
+                if chart_type != "weights":
+                    if yuma_version not in simulation_cache:
+                        simulation_cache[yuma_version] = _run_simulation(
+                            case=case,
+                            yuma_version=yuma_version,
+                            yuma_config=yuma_config,
+                        )
+                    simulation_results = simulation_cache[yuma_version]
+                else:
+                    simulation_results = None
+
+                chart_row[yuma_version] = _generate_chart_for_type(
+                    chart_type=chart_type,
                     case=case,
-                    yuma_version=yuma_version,
-                    yuma_config=yuma_config,
+                    final_case_name=final_case_name,
+                    simulation_results=simulation_results,
+                    to_base64=True,
                 )
 
-                if chart_type == "weights":
-                    chart_base64 = _plot_validator_server_weights(
-                        validators=case.validators,
-                        weights_epochs=case.weights_epochs,
-                        servers=case.servers,
-                        num_epochs=case.num_epochs,
-                        case_name=full_case_name,
-                        to_base64=True,
-                    )
-                elif chart_type == "dividends":
-                    chart_base64 = _plot_dividends(
-                        num_epochs=case.num_epochs,
-                        validators=case.validators,
-                        dividends_per_validator=dividends_per_validator,
-                        case=full_case_name,
-                        base_validator=case.base_validator,
-                        to_base64=True,
-                    )
-                elif chart_type == "bonds":
-                    chart_base64 = _plot_bonds(
-                        num_epochs=case.num_epochs,
-                        validators=case.validators,
-                        servers=case.servers,
-                        bonds_per_epoch=bonds_per_epoch,
-                        case_name=full_case_name,
-                        to_base64=True,
-                    )
-                elif chart_type == "normalized_bonds":
-                    chart_base64 = _plot_bonds(
-                        num_epochs=case.num_epochs,
-                        validators=case.validators,
-                        servers=case.servers,
-                        bonds_per_epoch=bonds_per_epoch,
-                        case_name=full_case_name,
-                        to_base64=True,
-                        normalize=True,
-                    )
-                elif chart_type == "incentives":
-                    chart_base64 = _plot_incentives(
-                        servers=case.servers,
-                        server_incentives_per_epoch=server_incentives_per_epoch,
-                        num_epochs=case.num_epochs,
-                        case_name=full_case_name,
-                        to_base64=True,
-                    )
-                else:
-                    raise ValueError("Invalid chart type.")
+            for yuma_version, chart_base64 in chart_row.items():
+                table_data[yuma_version].append(chart_base64)
 
-                chart_base64_dict[yuma_version] = chart_base64
-
-            process_chart(table_data, chart_base64_dict)
             current_row_count += 1
 
-        case_end = current_row_count - 1
-        case_row_ranges.append((case_start, case_end, idx))
+        case_row_ranges.append((case_start, current_row_count - 1, idx))
 
     summary_table = pd.DataFrame(table_data)
+    if draggable_table:
+        full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)
+    else:
+        full_html = _generate_ipynb_table(table_data, summary_table, case_row_ranges)
 
+    return HTML(full_html)
+
+
+def generate_metagraph_based_chart_table(
+    yuma_versions: list[tuple[str, YumaParams]],
+    normal_case: BaseCase,
+    shifted_case: BaseCase,
+    yuma_hyperparameters: SimulationHyperparameters,
+    epochs_padding: int,
+    draggable_table: bool = False,
+) -> HTML:
+    """
+    Generates an HTML table with one column per yuma_version.
+    
+    For each yuma_version the table includes four rows:
+      - Row 0: The relative dividends chart for the normal case.
+      - Row 1: The relative dividends chart for the shifted case.
+      - Row 2: A comparisson chart that uses both cases relative dividends.
+      - Row 3: A comparisson chart with stake scaling.
+    """
+    table_data: dict[str, list[str]] = {yuma_version: [] for yuma_version, _ in yuma_versions}
+    yuma_names = YumaSimulationNames()
+
+    for yuma_version, yuma_params in yuma_versions:
+        yuma_config = YumaConfig(simulation=yuma_hyperparameters, yuma_params=yuma_params)
+
+        final_case_name_normal, final_case_name_shifted = _get_final_case_names_dynamic(
+            normal_case, shifted_case, yuma_version, yuma_config
+        )
+
+        _, validators_relative_dividends_normal, _, _ = _run_dynamic_simulation(
+            case=normal_case,
+            yuma_version=yuma_version,
+            yuma_config=yuma_config,
+        )
+        _, validators_relative_dividends_shifted, _, _ = _run_dynamic_simulation(
+            case=shifted_case,
+            yuma_version=yuma_version,
+            yuma_config=yuma_config,
+        )
+
+        chart_normal = _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends_normal,
+            case_name=final_case_name_normal,
+            case=normal_case,
+            num_epochs=normal_case.num_epochs,
+            epochs_padding=epochs_padding,
+            to_base64=True,
+        )
+        chart_shifted = _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends_shifted,
+            case_name=final_case_name_shifted,
+            case=shifted_case,
+            num_epochs=shifted_case.num_epochs,
+            epochs_padding=epochs_padding,
+            to_base64=True,
+        )
+        chart_comparisson = _plot_relative_dividends_comparisson(
+            validators_relative_dividends_normal=validators_relative_dividends_normal,
+            validators_relative_dividends_shifted=validators_relative_dividends_shifted,
+            num_epochs=normal_case.num_epochs,  # Assuming same epochs.
+            epochs_padding=epochs_padding,
+            case=normal_case,
+            to_base64=True,
+        )
+        chart_comparisson_stake_scaled = _plot_relative_dividends_comparisson(
+            validators_relative_dividends_normal=validators_relative_dividends_normal,
+            validators_relative_dividends_shifted=validators_relative_dividends_shifted,
+            num_epochs=normal_case.num_epochs,
+            epochs_padding=epochs_padding,
+            case=normal_case,
+            to_base64=True,
+            use_stakes=True,
+        )
+
+        table_data[yuma_version].extend([
+            chart_normal,
+            chart_shifted,
+            chart_comparisson,
+            chart_comparisson_stake_scaled,
+        ])
+
+    case_row_ranges = [(0, 0, 0), (1, 1, 1), (2, 2, 2), (3, 3, 3)]
+    summary_table = pd.DataFrame(table_data)
     if draggable_table:
         full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)
     else:

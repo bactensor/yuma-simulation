@@ -30,7 +30,14 @@ if CI:
     PYTHON_VERSIONS = [sys.executable]
 
 
-def install(session: nox.Session, *groups, dev: bool = True, editable: bool = False, no_self=False, no_default=False):
+def install(
+    session: nox.Session,
+    *groups,
+    dev: bool = True,
+    editable: bool = False,
+    no_self=False,
+    no_default=False,
+):
     other_args = []
     if not dev:
         other_args.append("--prod")
@@ -141,9 +148,11 @@ def format_(session):
 def lint(session):
     """Run linters in readonly mode."""
     # "test" group is required for mypy to work against test files
-    install(session, "lint", "test")
-    session.run("ruff", "check", "--diff", "--unsafe-fixes", ".")
-    session.run("ruff", "format", "--diff", ".")
+    install(
+        session, "bittensor", "list", "test", "pandas", "pandas-stubs"
+    )
+    session.run("ruff", "check", "--fix", ".")
+    session.run("ruff", "format", ".")
     session.run("mypy", ".")
     session.run("codespell", ".")
     run_shellcheck(session, mode="check")
@@ -182,9 +191,13 @@ def make_release(session):
     if local_changes:
         session.error("Uncommitted changes detected")
 
-    current_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+    current_branch = subprocess.check_output(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
+    ).strip()
     if current_branch != MAIN_BRANCH_NAME:
-        session.warn(f"Releasing from a branch {current_branch!r}, while main branch is {MAIN_BRANCH_NAME!r}")
+        session.warn(
+            f"Releasing from a branch {current_branch!r}, while main branch is {MAIN_BRANCH_NAME!r}"
+        )
         if not parsed_args.draft:
             session.error("Only draft releases are allowed from non-main branch")
 
