@@ -27,6 +27,9 @@ def main():
 
         # Define Yuma parameter variations
         base_yuma_params = YumaParams()
+        ancient_yuma_params = YumaParams(
+            bond_moving_avg=0,
+        )
         rust_yuma_params = YumaParams(
             bond_moving_avg=0.975,
         )
@@ -43,14 +46,11 @@ def main():
 
         yumas = YumaSimulationNames()
         yuma_versions = [
-            (yumas.YUMA_RUST, rust_yuma_params),
-            # (yumas.YUMA, base_yuma_params),
-            # (yumas.YUMA_LIQUID, liquid_alpha_on_yuma_params),
-            # (yumas.YUMA2, base_yuma_params),
-            # (yumas.YUMA3, base_yuma_params),
-            # (yumas.YUMA31, base_yuma_params),
-            # (yumas.YUMA32, base_yuma_params),
-            # (yumas.YUMA4, base_yuma_params),
+            (yumas.YUMA1, ancient_yuma_params),
+            (yumas.YUMA2, base_yuma_params),
+            (yumas.YUMA2B, base_yuma_params),
+            (yumas.YUMA2C, base_yuma_params),
+            (yumas.YUMA3, yuma4_params),
             (yumas.YUMA3_LIQUID, yuma4_liquid_params),
         ]
 

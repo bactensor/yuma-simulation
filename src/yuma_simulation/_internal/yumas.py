@@ -55,13 +55,10 @@ class YumaConfig:
 
 @dataclass(frozen=True)
 class YumaSimulationNames:
-    YUMA_RUST: str = "Yuma 0 (subtensor)"
-    YUMA: str = "Yuma 1 (paper)"
-    YUMA_LIQUID: str = "Yuma 1 (paper) - liquid alpha on"
-    YUMA2: str = "Yuma 2 (Adrian-Fish)"
-    YUMA2B: str = "Yuma 2B (Rhef)"
-    YUMA21B: str = "Yuma 2.1B (Rhef+reset)"
-    YUMA22B: str = "Yuma 2.2B (Rhef+conditional)"
+    YUMA1: str = "Yuma 1"
+    YUMA2: str = "Yuma 2 (subtensor)"
+    YUMA2B: str = "Yuma 2B (Adrian-Fish)"
+    YUMA2C: str = "Yuma 2C (Rhef+reset)"
     YUMA3: str = "Yuma 3 (Rhef+relative bonds)"
     YUMA3_LIQUID: str = "Yuma 3 (Rhef+relative bonds) - liquid alpha on"
 
@@ -286,7 +283,7 @@ def Yuma(
     }
 
 
-def Yuma2(
+def Yuma2b(
     W: torch.Tensor,
     W_prev: torch.Tensor,
     S: torch.Tensor,
@@ -397,7 +394,7 @@ def Yuma2(
     }
 
 
-def Yuma2b(
+def Yuma2c(
     W: torch.Tensor,
     S: torch.Tensor,
     B_old: Optional[torch.Tensor] = None,

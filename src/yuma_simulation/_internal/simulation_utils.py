@@ -14,9 +14,8 @@ from yuma_simulation._internal.charts_utils import (
 )
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
-    Yuma,
-    Yuma2,
     Yuma2b,
+    Yuma2c,
     Yuma3,
     YumaConfig,
     YumaParams,
@@ -244,20 +243,12 @@ def _call_yuma(
     should_reset_bonds = (
         case.reset_bonds and (
         (yuma_version in [
-            simulation_names.YUMA21B,
+            simulation_names.YUMA2C,
             simulation_names.YUMA3,
             simulation_names.YUMA3_LIQUID,
         ]
         and B_state is not None 
         and epoch == case.reset_bonds_epoch
-        ) or (
-        yuma_version in [
-            simulation_names.YUMA22B,
-        ] 
-        and B_state is not None 
-        and epoch == case.reset_bonds_epoch 
-        and server_consensus_weight is not None 
-        and server_consensus_weight[case.reset_bonds_index] == 0.0
         ))
     )
 
@@ -267,23 +258,8 @@ def _call_yuma(
     elif should_reset_bonds:
         B_state[:, case.reset_bonds_index] = 0.0
 
-    if yuma_version in [simulation_names.YUMA, simulation_names.YUMA_LIQUID]:
-        result = Yuma(
-            W=W,
-            S=S,
-            B_old=B_state,
-            C_old=C_state,
-            config=yuma_config,
-            num_servers=len(case.servers),
-            num_validators=len(case.validators),
-            use_full_matrices=case.use_full_matrices
-        )
-        B_state = result["validator_ema_bond"]
-        C_state = result["server_consensus_weight"]
-
-
-    elif yuma_version == simulation_names.YUMA2:
-        result = Yuma2(
+    if yuma_version == simulation_names.YUMA2B:
+        result = Yuma2b(
             W=W,
             W_prev=W_prev,
             S=S,
@@ -298,28 +274,8 @@ def _call_yuma(
         C_state = result["server_consensus_weight"]
         W_prev = result["weight"]
 
-    elif yuma_version == simulation_names.YUMA2B:
-        result = Yuma2b(
-            W,
-            S,
-            B_old=B_state,
-            config=yuma_config,
-        )
-        B_state = result["validator_bonds"]
-        C_state = result["server_consensus_weight"]
-
-    elif yuma_version == simulation_names.YUMA21B:
-        result = Yuma2b(
-            W,
-            S,
-            B_old=B_state,
-            config=yuma_config,
-        )
-        B_state = result["validator_bonds"]
-        C_state = result["server_consensus_weight"]
-
-    elif yuma_version == simulation_names.YUMA22B:
-        result = Yuma2b(
+    elif yuma_version == simulation_names.YUMA2C:
+        result = Yuma2c(
             W,
             S,
             B_old=B_state,
@@ -342,7 +298,7 @@ def _call_yuma(
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
-    elif yuma_version == "Yuma 0 (subtensor)":
+    elif yuma_version in [simulation_names.YUMA1, simulation_names.YUMA2]:
         result = YumaRust(
             W,
             S,
@@ -895,8 +851,8 @@ def _get_final_case_name(case: BaseCase, yuma_version: str, yuma_config: YumaCon
     """
     yuma_names = YumaSimulationNames()
     final_yuma_name = ""
-    if yuma_version in [yuma_names.YUMA, yuma_names.YUMA_LIQUID, yuma_names.YUMA2]:
-        final_yuma_name = f"{case.name} - beta={yuma_config.bond_penalty}"
+    if yuma_version == yuma_names.YUMA2B:
+        final_yuma_name = f"{case.name} - {yuma_version} - beta={yuma_config.bond_penalty}"
     elif yuma_version == yuma_names.YUMA3_LIQUID:
         final_yuma_name = f"{case.name} - {yuma_version} - [{yuma_config.alpha_low}, {yuma_config.alpha_high}]"
     else:
@@ -915,7 +871,7 @@ def _get_final_case_names_dynamic(
     based on the yuma version and configuration.
     """
     yuma_names = YumaSimulationNames()
-    if yuma_version in [yuma_names.YUMA, yuma_names.YUMA_LIQUID, yuma_names.YUMA2]:
+    if yuma_version == yuma_names.YUMA2B:
         final_case_name_normal = f"{normal_case.name} - beta={yuma_config.bond_penalty}"
         final_case_name_shifted = f"{shifted_case.name} - beta={yuma_config.bond_penalty}"
     elif yuma_version == yuma_names.YUMA3_LIQUID:
