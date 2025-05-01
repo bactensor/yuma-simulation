@@ -13,7 +13,7 @@ def test_generate_chart_table_with_charts():
     base_yuma_params = YumaParams()
     yumas = YumaSimulationNames()
     yuma_versions = [
-        (yumas.YUMA, base_yuma_params),
+        (yumas.YUMA2, base_yuma_params),
     ]
     simulation_hyperparameters = SimulationHyperparameters(bond_penalty=0.99)
 
