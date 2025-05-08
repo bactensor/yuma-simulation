@@ -1,6 +1,8 @@
 import torch
 import pandas as pd
 from dataclasses import dataclass, field
+from typing import Any
+
 
 class_registry = {}
 
@@ -155,8 +157,11 @@ class MetagraphCase(BaseCase):
         first_valid_indices = self.valid_indices_epochs[0]
         first_validators = self.validators_epochs[0]
         try:
-            row_in_valid_indices = first_valid_indices.index(self.shift_validator_id)
-            self.base_validator = first_validators[row_in_valid_indices]
+            if self.introduce_shift:
+                row_in_valid_indices = first_valid_indices.index(self.shift_validator_id)
+                self.base_validator = first_validators[row_in_valid_indices]
+            else:
+                self.base_validator = first_validators[0]
         except ValueError:
             raise ValueError(
                 "The shifted validator id is not present in the list of valid validator ids in epoch 0."
@@ -173,7 +178,7 @@ class MetagraphCase(BaseCase):
                     self.shift_validator_hotkey = hotkey
             except ValueError:
                 raise ValueError(
-                    f"Top validator id {tv_id} is not present in the valid validator IDs in epoch 0."
+                    f"Validator id {tv_id} is not present in the valid validator IDs in the first requested."
                 )
 
         if not self.validators:
@@ -978,3 +983,28 @@ def get_synthetic_cases(use_full_matrices: bool = False, reset_bonds: bool = Fal
             instance.reset_bonds = False
         cases.append(instance)
     return cases
+
+
+def instantiate_metagraph_case(
+    mg_data: dict[str, Any],
+    top_validators_ids: list[int],
+) -> MetagraphCase:
+    #TODO pass hotkeys per epoch, not fixed global ones
+    global_hotkeys = mg_data["hotkeys"]
+
+    metas = []
+    for stake_epoch, weight_epoch in zip(
+        mg_data["stakes"], mg_data["weights"]
+    ):
+        metas.append({
+            "S": stake_epoch,
+            "W": weight_epoch,
+            "hotkeys": global_hotkeys,
+        })
+
+    case = MetagraphCase(
+        metas=metas,
+        num_epochs=len(metas),
+        top_validators_ids=top_validators_ids
+    )
+    return case
