@@ -1008,7 +1008,6 @@ def instantiate_metagraph_case(
         S = ordered_stakes_for_uids(stakes_map, uids)      # list[float], len = len(uids)
         W = ordered_weights_for_uids(weight_map, uids)     # list[list[float]], NxN
         hk = epoch_hks[block]
-        print(len(hk))
         if len(hk) == 0:
             print(S)
             print(mg_data["weights"][b])
