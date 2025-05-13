@@ -2,7 +2,6 @@ import torch
 import pandas as pd
 from dataclasses import dataclass, field
 from typing import Any
-from datetime import datetime
 
 
 class_registry = {}
@@ -1084,37 +1083,48 @@ def epoch_hotkeys_by_uid(
     hotkeys: list[str],
     uids: list[int],
     weights: dict[str, dict[str, dict[str, float]]],
-    blocks: list[Any],
-) -> dict[Any, list[str]]:
+    blocks: list[int],
+    n_slots: int = 256,
+) -> dict[int, list[str]]:
     """
-    For each block in `blocks`, return a list of the hotkeys whose
-    neuron‐slots were active (had any incoming or outgoing weight),
-    ordered by the UID of that slot.
+    For each block in `blocks`, returns a list of length n_slots where
+    list[slot] = the hotkey occupying that slot (UID) if it was active
+    in this block, or "" otherwise.
 
     Args:
-      hotkeys:  list of length N, index = neuron‐slot → hotkey string
-      uids:     list of length N, index = neuron‐slot → UID
-      weights:  mg_data["weights"], mapping block_str → { str(i) → { str(j) → weight } }
-      blocks:   mg_data["blocks"], in the order you’ll iterate epochs
-
-    Returns:
-      A dict mapping each block → that epoch’s list of hotkeys (sorted by UID).
+      hotkeys:  index → hotkey string
+      uids:     index → UID (0…n_slots-1)
+      weights:  block_str → { str(src_idx) → { str(tgt_idx) → weight } }
+      blocks:   list of block numbers to process
+      n_slots:  total slots in the subnet (default 256)
     """
-    result: dict[Any, list[str]] = {}
-    N = len(hotkeys)
+    result: dict[int, list[str]] = {}
 
     for blk in blocks:
-        wm = weights[str(blk)]
+        wm = weights.get(str(blk), {})
 
-        active: set[int] = set()
+        active_idxs: set[int] = set()
         for src_str, row in wm.items():
-            si = int(src_str)
-            active.add(si)
-            for tgt_str in row:
-                active.add(int(tgt_str))
+            try:
+                si = int(src_str)
+            except ValueError:
+                continue
+            active_idxs.add(si)
+            for tgt_str in row.keys():
+                try:
+                    ti = int(tgt_str)
+                except ValueError:
+                    continue
+                active_idxs.add(ti)
 
-        pairs = [(uids[i], i) for i in active if 0 <= i < N]
-        pairs.sort(key=lambda x: x[0])
-        result[blk] = [hotkeys[i] for (_uid, i) in pairs]
+        hk_by_slot = [""] * n_slots
+
+        for i in active_idxs:
+            if 0 <= i < len(uids):
+                slot = uids[i]
+                if 0 <= slot < n_slots:
+                    hk_by_slot[slot] = hotkeys[i]
+
+        result[blk] = hk_by_slot
 
     return result
