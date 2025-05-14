@@ -1,7 +1,7 @@
 {
     "global": {
       "generate_chart_table": true,
-      "generate_dividends_table": true,
+      "generate_dividends_table": false,
       "output_dir": "results",
       "metagraphs_dir": "metagraphs",
       "download_new_metagraph": false,
@@ -22,15 +22,6 @@
       "liquid_alpha_consensus_mode": "CURRENT"
     },
     "yuma_versions": [
-      {
-        "name": "YUMA_RUST",
-        "params": {
-          "bond_moving_avg": 0.975,
-          "liquid_alpha": false,
-          "alpha_low": 0.05,
-          "alpha_high": 0.4
-        }
-      },
       {
         "name": "YUMA3",
         "params": {

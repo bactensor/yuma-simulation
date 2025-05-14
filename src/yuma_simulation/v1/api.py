@@ -86,8 +86,51 @@ def generate_chart_table(
 
     return HTML(full_html)
 
-
 def generate_metagraph_based_chart_table(
+    yuma_versions: list[tuple[str, YumaParams]],
+    normal_case: BaseCase,
+    yuma_hyperparameters: SimulationHyperparameters,
+    epochs_padding: int,
+    draggable_table: bool = False,
+) -> HTML:
+    table_data: dict[str, list[str]] = {yuma_version: [] for yuma_version, _ in yuma_versions}
+    yuma_names = YumaSimulationNames()
+
+    for yuma_version, yuma_params in yuma_versions:
+        yuma_config = YumaConfig(simulation=yuma_hyperparameters, yuma_params=yuma_params)
+
+        final_case_name_normal= _get_final_case_name(
+            normal_case, yuma_version, yuma_config
+        )
+
+        _, validators_relative_dividends_normal, _, _ = _run_dynamic_simulation(
+            case=normal_case,
+            yuma_version=yuma_version,
+            yuma_config=yuma_config,
+        )
+
+        chart_normal = _plot_relative_dividends(
+            validators_relative_dividends=validators_relative_dividends_normal,
+            case_name=final_case_name_normal,
+            case=normal_case,
+            num_epochs=normal_case.num_epochs,
+            epochs_padding=epochs_padding,
+            to_base64=True,
+        )
+
+        table_data[yuma_version].append(chart_normal)
+
+    case_row_ranges = [(0, 0, 0)]
+    summary_table = pd.DataFrame(table_data)
+    if draggable_table:
+        full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)
+    else:
+        full_html = _generate_ipynb_table(table_data, summary_table, case_row_ranges)
+
+    return HTML(full_html)
+
+
+def generate_metagraph_based_chart_table_shifted_comparisson(
     yuma_versions: list[tuple[str, YumaParams]],
     normal_case: BaseCase,
     shifted_case: BaseCase,
