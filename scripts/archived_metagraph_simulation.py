@@ -63,7 +63,7 @@ def run_single_scenario(args: Namespace) -> None:
         file_name = f"./{args.output_dir}/subnet_{args.subnet_id}/metagraph_simulation_results_gpu_shift_comparison{args.shift_validator_id}.html"
         logger.info("Creating the charts table...")
         try:
-            chart_table = generate_metagraph_based_chart_table(
+            chart_table = generate_metagraph_based_chart_table_shifted_comparisson(
                 yuma_versions=yuma_versions,
                 normal_case=normal_case,
                 shifted_case=shifted_case,

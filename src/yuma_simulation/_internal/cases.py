@@ -109,6 +109,7 @@ class MetagraphCase(BaseCase):
     valid_indices_epochs: list[list[int]] = field(default_factory=list, init=False)
     miner_indices_epochs: list[list[int]] = field(default_factory=list, init=False)
     validators_epochs: list[list[str]] = field(default_factory=list, init=False)
+    servers: list[list[str]] = field(default_factory=list, init=False)
 
     def __post_init__(self):
         """
@@ -146,12 +147,15 @@ class MetagraphCase(BaseCase):
 
             self.valid_indices_epochs.append(valid_indices)
             self.miner_indices_epochs.append(miner_indices)
-            # Get the list of validator hotkeys for this epoch.
+            # Get the list of validator and miners hotkeys for this epoch.
             try:
                 validators_for_epoch = [meta["hotkeys"][uid] for uid in valid_indices]
+                miners_for_epoch = [meta["hotkeys"][uid] for uid in miner_indices]
             except (KeyError, IndexError) as e:
                 raise ValueError(f"Error retrieving hotkeys for epoch {idx}: {e}")
+            
             self.validators_epochs.append(validators_for_epoch)
+            self.servers.append(miners_for_epoch)
 
         # For base_validator and top_validators, we use the first epoch as reference.
         first_valid_indices = self.valid_indices_epochs[0]
