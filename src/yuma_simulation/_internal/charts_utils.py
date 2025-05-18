@@ -13,9 +13,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import math
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter
 from yuma_simulation._internal.cases import BaseCase
+
 
 logger = logging.getLogger("main_logger")
 
@@ -559,126 +561,108 @@ def _plot_bonds_metagraph_dynamic(
     selected_miners:    list[str] | None = None,
     legend_validators:  list[str] | None = None,
 ) -> str | None:
-    """
-    Generates dynamic plots of bonds per miner for specified validators over epochs,
-    handling changing sets of validators and miners per epoch. Panels are laid out in two columns.
-    The legend will include only the hotkeys in `legend_validators` (if provided),
-    otherwise it uses `selected_validators`.
-
-    Epoch tick labels are shown at intervals of 5 epochs on every subplot.
-    """
-    # 1) Prepare dynamic data: miners × validators × epochs
     bonds_data = _prepare_bond_data_dynamic(
-        bonds_per_epoch,
-        validators_epochs,
-        miners_epochs,
+        bonds_per_epoch, validators_epochs, miners_epochs,
         normalize=normalize,
     )
+    subset_v = selected_validators or validators_epochs[0]
+    subset_m = (selected_miners or miners_epochs[0])[:10]
 
-    # 2) Determine global hotkey lists (defaults to first epoch)
-    all_v = validators_epochs[0]
-    all_m = miners_epochs[0]
-    subset_v = selected_validators or all_v
-    subset_m = (selected_miners or all_m)[:10]
-
-    # 3) Build hotkey→index for result arrays
     miner_keys = miners_epochs[0]
     validator_keys: list[str] = []
     for epoch in validators_epochs:
-        for hk in epoch:
-            if hk not in validator_keys:
-                validator_keys.append(hk)
+        for v in epoch:
+            if v not in validator_keys:
+                validator_keys.append(v)
 
     m_idx = [miner_keys.index(m) for m in subset_m]
     v_idx = [validator_keys.index(v) for v in subset_v]
+    plot_data = [[bonds_data[mi][vi] for vi in v_idx] for mi in m_idx]
 
-    # 4) Slice out subset data for plotting
-    plot_data = [
-        [bonds_data[mi][vi] for vi in v_idx]
-        for mi in m_idx
-    ]
-
-    # 5) Setup a 2-column grid
-    import math
     n_plots = len(plot_data)
-    cols = 2
-    rows = math.ceil(n_plots / cols)
-    fig, axes = plt.subplots(
-        rows,
-        cols,
-        figsize=(7 * cols, 5 * rows),
-        sharex=True,
-        sharey=True,
-    )
+    cols    = 2
+    rows    = math.ceil(n_plots/cols)
+    fig_w, fig_h = 7*cols, 5*rows
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h),
+                             sharex=True, sharey=True)
     axes = axes.flatten()
 
     styles = _get_validator_styles(validator_keys)
-    handles: list[plt.Artist] = []
-    labels: list[str] = []
+    handles, labels = [], []
     legend_keys = legend_validators or subset_v
 
-    # Prepare X values and tick intervals
     x = list(range(num_epochs))
-    tick_positions = list(range(0, num_epochs, 5))
-    if (num_epochs - 1) not in tick_positions:
-        tick_positions.append(num_epochs - 1)
-    tick_labels = [str(pos) for pos in tick_positions]
+    ticks = list(range(0, num_epochs, 5))
+    if (num_epochs-1) not in ticks:
+        ticks.append(num_epochs-1)
+    tick_labels = [str(t) for t in ticks]
 
-    for i_m, miner in enumerate(subset_m):
-        ax = axes[i_m]
-        # Plot each validator line
-        for i_v, validator in enumerate(subset_v):
-            linestyle, marker, markersize, markeredgewidth = styles[validator]
+    for i, miner in enumerate(subset_m):
+        ax = axes[i]
+        for j, validator in enumerate(subset_v):
+            ls, mk, ms, mew = styles[validator]
             line = ax.plot(
-                x,
-                plot_data[i_m][i_v],
-                alpha=0.7,
-                linewidth=2,
-                linestyle=linestyle,
-                marker=marker,
-                markersize=markersize,
-                markeredgewidth=markeredgewidth,
+                x, plot_data[i][j],
+                alpha=0.7, linewidth=2,
+                linestyle=ls, marker=mk,
+                markersize=ms, markeredgewidth=mew
             )[0]
-            # Add to legend only for first subplot and if in legend_keys
-            if i_m == 0 and validator in legend_keys:
+            if i == 0 and validator in legend_keys:
                 handles.append(line)
                 labels.append(validator)
 
-        # Title and axes formatting
         ax.set_title(miner, fontsize=10)
-        ax.set_xticks(tick_positions)
+        ax.set_xticks(ticks)
         ax.set_xticklabels(tick_labels, rotation=0)
         ax.set_xlabel("Epoch")
-        if i_m == 0:
+        ax.tick_params(axis='x', labelbottom=True)
+        if i == 0:
             ax.set_ylabel("Bond Ratio" if normalize else "Bond Value")
         ax.grid(True)
         if normalize:
             ax.set_ylim(0, 1.05)
 
-    # Hide unused axes
     for ax in axes[n_plots:]:
         ax.set_visible(False)
 
-    # Supertitle and legend
-    fig.suptitle(
+    supt = fig.suptitle(
         f"Validators bonds per Miner{' normalized' if normalize else ''}\n{case_name}",
         fontsize=14,
+        y=0.95
     )
+
+    fig.subplots_adjust(
+        left=0.05, right=0.95,
+        top=0.85,
+        bottom=0.05,
+        wspace=0.3, hspace=0.4
+    )
+
+    fig.canvas.draw()
+    first_row = axes[:min(cols, len(axes))]
+    grid_top  = max(ax.get_position().y1 for ax in first_row)
+    title_y   = supt.get_position()[1]
+
+    legend_center_y = (grid_top + title_y) / 2
+
+    ncol = min(len(labels), 4)
     fig.legend(
-        handles,
-        labels,
-        loc="lower center",
-        ncol=len(labels),
-        bbox_to_anchor=(0.5, 0.02),
+        handles, labels,
+        loc='center',
+        bbox_to_anchor=(0.5, legend_center_y),
+        bbox_transform=fig.transFigure,
+        ncol=ncol,
+        frameon=False,
+        fontsize="small",
+        handletextpad=0.3,
+        columnspacing=0.5
     )
-    plt.tight_layout(rect=(0, 0.05, 0.98, 0.95))
 
     if to_base64:
         return _plot_to_base64(fig)
     plt.show()
     plt.close(fig)
     return None
-
 
 
 def _plot_validator_server_weights(

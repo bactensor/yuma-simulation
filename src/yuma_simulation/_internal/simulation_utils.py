@@ -132,7 +132,6 @@ def _run_dynamic_simulation(
         W: torch.Tensor = case.weights_epochs[epoch]
         S: torch.Tensor = case.stakes_epochs[epoch]
         current_validators: list[str] = case.validators_epochs[epoch]
-        # current_miners: list[str] = case.miners_epochs[epoch]
         current_miner_indices: list[int] = case.miner_indices_epochs[epoch]
 
         current_validator_count = len(current_validators)

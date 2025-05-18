@@ -6,6 +6,7 @@ import torch
 import bittensor as bt
 from multiprocessing import Pool
 from .experiment_setup import ExperimentSetup
+from typing import Optional
 
 logger = logging.getLogger("main_logger")
 def ensure_tensor_on_cpu(obj):
@@ -160,6 +161,160 @@ class DownloadMetagraph:
             logger.error("Error occurred during metagraph download in pool.", e)
             raise
 
+def fetch_metagraph_hotkeys(
+    netuid: int,
+    block: int,
+    max_retries: int = 5,
+    retry_delay: float = 5.0,
+) -> list[str]:
+    """
+    Fetch the full metagraph for `netuid` at `block` and return only the
+    256-length list of hotkeys (one per slot). Retries RPC up to max_retries.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Grab the archive endpoint
+            archive = bt.subtensor("archive")
+            meta = archive.metagraph(netuid=netuid, block=block, lite=False)
+            hotkeys: list[str] = meta.hotkeys
+            if len(hotkeys) != 256:
+                logger.warning(
+                    f"Block {block}: Expected 256 hotkeys, got {len(hotkeys)}"
+                )
+            return hotkeys
+
+        except Exception as exc:
+            logger.warning(
+                f"Attempt {attempt}/{max_retries} failed fetching block {block}: {exc}"
+            )
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+            else:
+                raise RuntimeError(
+                    f"Unable to fetch metagraph hotkeys for netuid={netuid}, "
+                    f"block={block} after {max_retries} attempts."
+                )
+
+def ordered_weights_for_uids(
+    weight_map: dict[str, dict[str, float]],
+    uids: list[int],
+) -> list[list[float]]:
+    """
+    weight_map: dict[str(idx_i) → dict[str(idx_j) → weight]]
+    uids: list of all UIDs, where idx_str references uids[idx]
+
+    Returns a 256×256 matrix W where
+      W[i][j] = weight from UID i → UID j (0.0 if missing).
+    """
+    N = len(uids)
+
+    # build actual-UID → (actual-UID → weight)
+    weight_by_uid: dict[int, dict[int, float]] = {}
+    for idx_i_str, row in weight_map.items():
+        i = int(idx_i_str)
+        if 0 <= i < N:
+            ui = uids[i]
+            inner: dict[int, float] = {}
+            for idx_j_str, w in row.items():
+                j = int(idx_j_str)
+                if 0 <= j < N:
+                    uj = uids[j]
+                    inner[uj] = float(w)
+            weight_by_uid[ui] = inner
+
+    # emit a full 256×256 matrix in UID order 0…255
+    return [
+        [weight_by_uid.get(i, {}).get(j, 0.0) for j in range(256)]
+        for i in range(256)
+    ]
+
+def ordered_stakes_for_uids(
+    stakes_map: dict[str, float],
+    uids: list[int],
+) -> list[float]:
+    """
+    stakes_map: dict[str(idx) → stake]
+    uids: list of all UIDs, where each idx_str in stakes_map references uids[idx]
+
+    Returns a list S of length N where
+        S[i] = stakes_map[str(i)] → converts to uid=uids[i], then stake_by_uid[uid]
+             = 0.0 if missing.
+    """
+    N = len(uids)
+    # build uid→stake
+    stake_by_uid: dict[int, float] = {}
+    for idx_str, stake in stakes_map.items():
+        idx = int(idx_str)
+        if 0 <= idx < N:
+            stake_by_uid[uids[idx]] = float(stake)
+
+    ordered_list = [stake_by_uid.get(uid, 0.0) for uid in range(256)]
+    return ordered_list
+
+
+def epoch_hotkeys_by_uid(
+    hotkeys: list[str],
+    uids: list[int],
+    weights: dict[str, dict[str, dict[str, float]]],
+    blocks: list[int],
+    initial_hotkeys: Optional[list[str]] = None,
+    n_slots: int = 256,
+) -> dict[int, list[str]]:
+    """
+    Track slot→hotkey over each block:
+      - If `initial_hotkeys` is provided, use that for blocks[0].
+      - Thereafter, fold in only newly referenced indices from `weights`.
+    """
+    result: dict[int, list[str]] = {}
+
+    # Seed with first-block snapshot if given
+    start_idx = -1
+    slot_to_idx: dict[int,int] = {}
+    if initial_hotkeys is not None:
+        first_blk = blocks[0]
+        result[first_blk] = initial_hotkeys[:]  # ground-truth
+        # Build reverse map slot→history-index by matching strings:
+        for slot, hk in enumerate(initial_hotkeys):
+            if not hk:
+                continue
+            try:
+                idx = hotkeys.index(hk)
+            except ValueError:
+                continue
+            slot_to_idx[slot] = idx
+            start_idx = max(start_idx, idx)
+        # Skip re-generating first block below
+        blocks = blocks[1:]
+
+    # Process all remaining blocks incrementally
+    for blk in blocks:
+        wm = weights.get(str(blk), {})
+
+        # Find the highest event index mentioned this block
+        all_idxs = []
+        for src_str, row in wm.items():
+            if src_str.isdigit():
+                all_idxs.append(int(src_str))
+            for tgt_str in row:
+                if tgt_str.isdigit():
+                    all_idxs.append(int(tgt_str))
+        max_edge = max(all_idxs, default=start_idx)
+
+        # Fold in newly seen registrations/deregs
+        for idx in range(start_idx + 1, max_edge + 1):
+            slot = uids[idx]
+            slot_to_idx[slot] = idx
+        start_idx = max(start_idx, max_edge)
+
+        # Emit a full slots list for this block
+        hk_by_slot = [""] * n_slots
+        for slot, idx in slot_to_idx.items():
+            if 0 <= slot < n_slots:
+                hk_by_slot[slot] = hotkeys[idx]
+
+        result[blk] = hk_by_slot
+
+    return result
 
 if __name__ == "__main__":
     DownloadMetagraph().run()

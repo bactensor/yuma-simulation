@@ -108,6 +108,7 @@ def YumaRust(
     # === Consensus clipped weight ===
     W_clipped = torch.min(W, C)
 
+
     # === Rank ===
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
@@ -119,13 +120,14 @@ def YumaRust(
     T_v = W_clipped.sum(dim=1) / W.sum(dim=1)
 
     # === Bonds ===
-    B = S.view(-1, 1) * W_clipped
+    W_b = (1 - config.bond_penalty) * W + config.bond_penalty * W_clipped
+    B = S.view(-1, 1) * W_b
     B_sum = B.sum(dim=0)
     B = B / (B_sum + 1e-6)
     B = torch.nan_to_num(B)
 
     a = b = torch.tensor(float("nan"))
-    alpha = 1 - config.bond_moving_avg
+    alpha = 1
     if config.liquid_alpha and (C_old is not None):
         from .simulation_utils import _compute_liquid_alpha
         alpha = _compute_liquid_alpha(
@@ -231,7 +233,6 @@ def Yuma(
 
     # === Bonds ===
     W_b = (1 - config.bond_penalty) * W + config.bond_penalty * W_clipped
-    # B = S.view(-1, 1) * W_b / (S.view(-1, 1) * W_b).sum(dim=0)
     B = S.view(-1, 1) * W_b
     B_sum = B.sum(dim=0)
     B = B / B_sum
@@ -295,7 +296,7 @@ def Yuma2b(
     config: YumaConfig = YumaConfig(),
 ) -> dict[str, torch.Tensor | None | float]:
     """
-    Yuma2 is designed to solve the problem of weight clipping influencing the current bond values for small stakers (validators).
+    Yuma2B is designed to solve the problem of weight clipping influencing the current bond values for small stakers (validators).
     The Bonds from the previous epoch are used to calculate Bonds EMA.
     """
 
@@ -402,17 +403,17 @@ def Yuma2c(
     maxint: int = 2**64 - 1,
 ) -> Dict[str, Union[torch.Tensor | None, float]]:
     """
-    Implements the Yuma2B algorithm for managing validator bonds, weights, and incentives
+    Implements the Yuma2C algorithm for managing validator bonds, weights, and incentives
     in a decentralized system.
 
-    Yuma2B addresses the shortcomings of the Yuma2 algorithm, which does not solve the
+    Yuma2C addresses the shortcomings of the Yuma2B algorithm, which does not solve the
     problem of weight clipping influencing bonds effectively. Yuma2 assumes that the
     "Big Validator" will allocate weights to the "new best" server in the next epoch
     after it is discovered by the "Small Validators." However, this leads to a drop in
     the bonds of the "Small Validators" after the next epoch, highlighting the need for
     a more robust solution.
 
-    Yuma2B introduces a robust bond accumulation mechanism that allows validators to accrue
+    Yuma2C introduces a robust bond accumulation mechanism that allows validators to accrue
     bonds over time. This mitigates the issues caused by weight clipping influencing bonds
     and ensures sustained validator engagement by tying bond accrual to stake and weights.
 

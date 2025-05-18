@@ -2,7 +2,11 @@ import torch
 import pandas as pd
 from dataclasses import dataclass, field
 from typing import Any
+import bittensor as bt
+import logging
+from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
 
+logger = logging.getLogger(__name__)
 
 class_registry = {}
 
@@ -189,6 +193,51 @@ class MetagraphCase(BaseCase):
             self.validators = first_validators
 
         super().__post_init__()
+    
+    @classmethod
+    def from_mg_dumper_data(
+        cls,
+        mg_data: dict[str, Any],
+        top_validators_ids: list[int],
+        netuid: int,
+    ) -> "MetagraphCase":
+        uids = mg_data["uids"]
+
+        first_blk = mg_data["blocks"][0]
+        initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
+
+        epoch_hks = epoch_hotkeys_by_uid(
+            hotkeys = mg_data["hotkeys"],
+            uids     = mg_data["uids"],
+            weights  = mg_data["weights"],
+            blocks   = mg_data["blocks"],
+            initial_hotkeys=initial_hk,
+        )
+
+        metas: list[dict] = []
+        for block in mg_data["blocks"]:
+            b = str(block)
+
+            stakes_map = mg_data["stakes"][b]    # dict[str(idx) → float stake]
+            weight_map = mg_data["weights"][b]   # dict[str(i) → dict[str(j) → float]]
+
+            S = ordered_stakes_for_uids(stakes_map, uids)      # list[float], len = len(uids)
+            W = ordered_weights_for_uids(weight_map, uids)     # list[list[float]], NxN
+            hk = epoch_hks[block]
+            if len(hk) == 0:
+                print(S)
+                print(mg_data["weights"][b])
+            metas.append({
+                "S": S,
+                "W": W,
+                "hotkeys": hk,
+            })
+
+        return cls(
+            metas=metas,
+            num_epochs=len(metas),
+            top_validators_ids=top_validators_ids
+        )
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:
@@ -987,148 +1036,3 @@ def get_synthetic_cases(use_full_matrices: bool = False, reset_bonds: bool = Fal
             instance.reset_bonds = False
         cases.append(instance)
     return cases
-
-
-def instantiate_metagraph_case(
-    mg_data: dict[str, Any],
-    top_validators_ids: list[int],
-) -> MetagraphCase:
-    uids = mg_data["uids"]
-
-    epoch_hks = epoch_hotkeys_by_uid(
-        hotkeys = mg_data["hotkeys"],
-        uids     = mg_data["uids"],
-        weights  = mg_data["weights"],
-        blocks   = mg_data["blocks"],
-    )
-    metas = []
-    for block in mg_data["blocks"]:
-        b = str(block)
-
-        stakes_map = mg_data["stakes"][b]    # dict[str(idx) → float stake]
-        weight_map = mg_data["weights"][b]   # dict[str(i) → dict[str(j) → float]]
-
-        S = ordered_stakes_for_uids(stakes_map, uids)      # list[float], len = len(uids)
-        W = ordered_weights_for_uids(weight_map, uids)     # list[list[float]], NxN
-        hk = epoch_hks[block]
-        if len(hk) == 0:
-            print(S)
-            print(mg_data["weights"][b])
-        metas.append({
-            "S": S,
-            "W": W,
-            "hotkeys": hk,
-        })
-
-    return MetagraphCase(
-        metas=metas,
-        num_epochs=len(metas),
-        top_validators_ids=top_validators_ids
-    )
-
-
-def ordered_weights_for_uids(
-    weight_map: dict[str, dict[str, float]],
-    uids: list[int],
-) -> list[list[float]]:
-    """
-    weight_map: dict[str(idx_i) → dict[str(idx_j) → weight]]
-    uids: list of all UIDs, where idx_str references uids[idx]
-
-    Returns a 256×256 matrix W where
-      W[i][j] = weight from UID i → UID j (0.0 if missing).
-    """
-    N = len(uids)
-
-    # build actual-UID → (actual-UID → weight)
-    weight_by_uid: dict[int, dict[int, float]] = {}
-    for idx_i_str, row in weight_map.items():
-        i = int(idx_i_str)
-        if 0 <= i < N:
-            ui = uids[i]
-            inner: dict[int, float] = {}
-            for idx_j_str, w in row.items():
-                j = int(idx_j_str)
-                if 0 <= j < N:
-                    uj = uids[j]
-                    inner[uj] = float(w)
-            weight_by_uid[ui] = inner
-
-    # emit a full 256×256 matrix in UID order 0…255
-    return [
-        [weight_by_uid.get(i, {}).get(j, 0.0) for j in range(256)]
-        for i in range(256)
-    ]
-
-def ordered_stakes_for_uids(
-    stakes_map: dict[str, float],
-    uids: list[int],
-) -> list[float]:
-    """
-    stakes_map: dict[str(idx) → stake]
-    uids: list of all UIDs, where each idx_str in stakes_map references uids[idx]
-
-    Returns a list S of length N where
-        S[i] = stakes_map[str(i)] → converts to uid=uids[i], then stake_by_uid[uid]
-             = 0.0 if missing.
-    """
-    N = len(uids)
-    # build uid→stake
-    stake_by_uid: dict[int, float] = {}
-    for idx_str, stake in stakes_map.items():
-        idx = int(idx_str)
-        if 0 <= idx < N:
-            stake_by_uid[uids[idx]] = float(stake)
-
-    ordered_list = [stake_by_uid.get(uid, 0.0) for uid in range(256)]
-    return ordered_list
-
-def epoch_hotkeys_by_uid(
-    hotkeys: list[str],
-    uids: list[int],
-    weights: dict[str, dict[str, dict[str, float]]],
-    blocks: list[int],
-    n_slots: int = 256,
-) -> dict[int, list[str]]:
-    """
-    For each block in `blocks`, returns a list of length n_slots where
-    list[slot] = the hotkey occupying that slot (UID) if it was active
-    in this block, or "" otherwise.
-
-    Args:
-      hotkeys:  index → hotkey string
-      uids:     index → UID (0…n_slots-1)
-      weights:  block_str → { str(src_idx) → { str(tgt_idx) → weight } }
-      blocks:   list of block numbers to process
-      n_slots:  total slots in the subnet (default 256)
-    """
-    result: dict[int, list[str]] = {}
-
-    for blk in blocks:
-        wm = weights.get(str(blk), {})
-
-        active_idxs: set[int] = set()
-        for src_str, row in wm.items():
-            try:
-                si = int(src_str)
-            except ValueError:
-                continue
-            active_idxs.add(si)
-            for tgt_str in row.keys():
-                try:
-                    ti = int(tgt_str)
-                except ValueError:
-                    continue
-                active_idxs.add(ti)
-
-        hk_by_slot = [""] * n_slots
-
-        for i in active_idxs:
-            if 0 <= i < len(uids):
-                slot = uids[i]
-                if 0 <= slot < n_slots:
-                    hk_by_slot[slot] = hotkeys[i]
-
-        result[blk] = hk_by_slot
-
-    return result
