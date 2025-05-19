@@ -1,8 +1,7 @@
 import torch
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Any
-import bittensor as bt
+from typing import Any, Optional
 import logging
 from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
 
@@ -115,6 +114,9 @@ class MetagraphCase(BaseCase):
     validators_epochs: list[list[str]] = field(default_factory=list, init=False)
     servers: list[list[str]] = field(default_factory=list, init=False)
 
+    hotkey_label_map: dict[str, str] = field(default_factory=dict, init=False)
+    selected_servers: list[str] = field(default_factory=list, init=False)
+    
     def __post_init__(self):
         """
         Process each metagraph to compute epoch-specific valid indices, miner indices,
@@ -199,10 +201,10 @@ class MetagraphCase(BaseCase):
         cls,
         mg_data: dict[str, Any],
         top_validators_ids: list[int],
+        selected_miners: list[int],
         netuid: int,
     ) -> "MetagraphCase":
         uids = mg_data["uids"]
-
         first_blk = mg_data["blocks"][0]
         initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
 
@@ -233,11 +235,20 @@ class MetagraphCase(BaseCase):
                 "hotkeys": hk,
             })
 
-        return cls(
+        case = cls(
             metas=metas,
             num_epochs=len(metas),
-            top_validators_ids=top_validators_ids
+            top_validators_ids=top_validators_ids,
         )
+
+        case.hotkey_label_map = {
+            hk: label
+            for hk, label in zip(mg_data["hotkeys"], mg_data["labels"])
+            if label
+        }
+
+        case.selected_servers = [initial_hk[i] for i in selected_miners if 0 <= i < len(initial_hk)]
+        return case
 
     @property
     def weights_epochs(self) -> list[torch.Tensor]:

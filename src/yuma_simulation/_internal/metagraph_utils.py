@@ -9,6 +9,15 @@ from .experiment_setup import ExperimentSetup
 from typing import Optional
 
 logger = logging.getLogger("main_logger")
+
+_archive_session = None
+
+def get_archive_session():
+    global _archive_session
+    if _archive_session is None:
+        _archive_session = bt.subtensor("archive")
+    return _archive_session
+
 def ensure_tensor_on_cpu(obj):
     return obj.cpu() if isinstance(obj, torch.Tensor) else obj
 
@@ -171,10 +180,10 @@ def fetch_metagraph_hotkeys(
     Fetch the full metagraph for `netuid` at `block` and return only the
     256-length list of hotkeys (one per slot). Retries RPC up to max_retries.
     """
+    archive = get_archive_session()
+
     for attempt in range(1, max_retries + 1):
         try:
-            # Grab the archive endpoint
-            archive = bt.subtensor("archive")
             meta = archive.metagraph(netuid=netuid, block=block, lite=False)
             hotkeys: list[str] = meta.hotkeys
             if len(hotkeys) != 256:

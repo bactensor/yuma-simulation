@@ -16,8 +16,7 @@ import torch
 import math
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter
-from yuma_simulation._internal.cases import BaseCase
-
+from yuma_simulation._internal.cases import BaseCase, MetagraphCase
 
 logger = logging.getLogger("main_logger")
 
@@ -280,7 +279,9 @@ def _plot_relative_dividends(
 
         total_mean = _compute_mean(dividends)
         sign_str = f"{total_mean * 100:+.5f}%"
-        label = f"{validator}: total = {sign_str}"
+
+        label_name = case.hotkey_label_map.get(validator, validator)
+        label = f"{label_name}: total = {sign_str}"
 
         linestyle, marker, markersize, markeredgewidth = validator_styles.get(
             validator, ("-", "o", 5, 1)
@@ -550,23 +551,24 @@ def _plot_bonds(
 
 
 def _plot_bonds_metagraph_dynamic(
-    num_epochs: int,
-    validators_epochs: list[list[str]],
-    miners_epochs:    list[list[str]],
+    case: MetagraphCase,
     bonds_per_epoch:  list[torch.Tensor],
     case_name:        str,
     to_base64:        bool = False,
     normalize:        bool = False,
-    selected_validators: list[str] | None = None,
-    selected_miners:    list[str] | None = None,
     legend_validators:  list[str] | None = None,
 ) -> str | None:
+    num_epochs = case.num_epochs
+    validators_epochs = case.validators_epochs
+    miners_epochs = case.servers
+    selected_validators = case.top_validators_hotkeys
+
     bonds_data = _prepare_bond_data_dynamic(
         bonds_per_epoch, validators_epochs, miners_epochs,
         normalize=normalize,
     )
     subset_v = selected_validators or validators_epochs[0]
-    subset_m = (selected_miners or miners_epochs[0])[:10]
+    subset_m = (case.selected_servers or miners_epochs[0])[:10]
 
     miner_keys = miners_epochs[0]
     validator_keys: list[str] = []
@@ -609,7 +611,8 @@ def _plot_bonds_metagraph_dynamic(
             )[0]
             if i == 0 and validator in legend_keys:
                 handles.append(line)
-                labels.append(validator)
+                pretty = case.hotkey_label_map.get(validator, validator)
+                labels.append(pretty)
 
         ax.set_title(miner, fontsize=10)
         ax.set_xticks(ticks)
@@ -663,6 +666,7 @@ def _plot_bonds_metagraph_dynamic(
     plt.show()
     plt.close(fig)
     return None
+
 
 
 def _plot_validator_server_weights(
@@ -861,6 +865,119 @@ def _plot_validator_server_weights_subplots(
     plt.close(fig)
     return None
 
+
+def _plot_validator_server_weights_subplots_dynamic(
+    case: MetagraphCase,
+    case_name:            str,
+    to_base64:            bool = False,
+) -> str | None:
+    """
+    Dynamic version for metagraph-based weights:
+      - case.validators_epochs[e] = list of hotkeys present in epoch e
+      - case.servers[e]           = list of server-hotkeys present in epoch e
+      - weights_epochs[e]         = tensor of shape [len(validators_epochs[e]), len(servers_epochs[e])]
+    Only plots the intersection with `selected_validators` / `selected_servers` if given.
+    """
+
+    validators_epochs = case.validators_epochs
+    servers_epochs    = case.servers
+    num_epochs        = case.num_epochs
+    hotkey_map        = case.hotkey_label_map
+    weights_epochs = case.weights_epochs
+    selected_validators = case.top_validators_hotkeys
+
+    # pick which to plot (or default to first‐epoch)
+    subset_vals = selected_validators or validators_epochs[0]
+    subset_srvs = case.selected_servers  or servers_epochs[0][:10]
+
+    # build data[srv][val][epoch] with nan where missing
+    data_cube: list[list[list[float]]] = []
+    for srv in subset_srvs:
+        per_val = []
+        for val in subset_vals:
+            series = []
+            for e in range(num_epochs):
+                ve, se, W = validators_epochs[e], servers_epochs[e], weights_epochs[e]
+                if val in ve and srv in se:
+                    r, c = ve.index(val), se.index(srv)
+                    series.append(float(W[r, c].item()))
+                else:
+                    series.append(np.nan)
+            per_val.append(series)
+        data_cube.append(per_val)
+
+    cols = 2
+    rows = math.ceil(len(subset_srvs) / cols)
+    fig_w, fig_h = 7 * cols, 5 * rows
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h),
+                             sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    styles  = _get_validator_styles(subset_vals)
+    handles, labels = [], []
+    x = list(range(num_epochs))
+
+    for i_srv, srv in enumerate(subset_srvs):
+        ax = axes[i_srv]
+        for i_val, val in enumerate(subset_vals):
+            ls, mk, ms, mew = styles[val]
+            (line,) = ax.plot(
+                x, data_cube[i_srv][i_val],
+                linestyle=ls, marker=mk,
+                markersize=ms, markeredgewidth=mew,
+                linewidth=2, alpha=0.7,
+            )
+            if i_srv == 0:
+                pretty = hotkey_map.get(val, val)
+                handles.append(line)
+                labels.append(pretty)
+
+        ax.set_title(srv, fontsize=10)
+        ax.grid(True)
+        ax.set_ylim(0, 1.05)
+        _set_default_xticks(ax, num_epochs)
+        ax.set_xlabel("Epoch")
+        if i_srv % cols == 0:
+            ax.set_ylabel("Validator Weight")
+
+    for ax in axes[len(subset_srvs):]:
+        ax.set_visible(False)
+
+    supt = fig.suptitle(
+        f"Validators' Weights per Server\n{case_name}",
+        fontsize=14,
+        y=0.95
+    )
+    fig.subplots_adjust(
+        left=0.05, right=0.95,
+        top=0.85, bottom=0.05,
+        wspace=0.3, hspace=0.4
+    )
+
+    fig.canvas.draw()
+    first_row = axes[:min(cols, len(subset_srvs))]
+    grid_top  = max(ax.get_position().y1 for ax in first_row)
+    title_y   = supt.get_position()[1]
+    legend_y  = (grid_top + title_y) / 2
+
+    ncol = min(len(labels), 4)
+    fig.legend(
+        handles, labels,
+        loc='center',
+        bbox_to_anchor=(0.5, legend_y),
+        bbox_transform=fig.transFigure,
+        ncol=ncol,
+        frameon=False,
+        fontsize="small",
+        handletextpad=0.3,
+        columnspacing=0.5
+    )
+
+    if to_base64:
+        return _plot_to_base64(fig)
+    plt.show()
+    plt.close(fig)
+    return None
 
 def _plot_incentives(
     servers: list[str],
