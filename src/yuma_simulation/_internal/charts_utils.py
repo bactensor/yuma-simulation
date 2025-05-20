@@ -1065,53 +1065,52 @@ def _prepare_bond_data(
     return bonds_data
 
 def _prepare_bond_data_dynamic(
-    bonds_per_epoch: list[torch.Tensor],
-    validators_epochs: list[list[str]],
-    miners_epochs: list[list[str]],
-    normalize: bool = False,
+    bonds_per_epoch:    list[torch.Tensor],
+    validators_epochs:  list[list[str]],
+    miners_epochs:      list[list[str]],
+    normalize:          bool = False,
 ) -> list[list[list[float]]]:
-    """Turn each epoch’s W-matrix into a [miners][validators][epochs] float list structure."""
+    """Turn each epoch’s W-matrix into a [miner_slot][validator][epoch] float list,
+       padding zeros for missing entries so that normalization and indexing always work."""
 
     num_epochs = len(bonds_per_epoch)
-    # Determine maximum number of distinct miners across epochs
+
+    validator_keys: list[str] = []
+    for vlist in validators_epochs:
+        for v in vlist:
+            if v not in validator_keys:
+                validator_keys.append(v)
+
     max_miners = max(len(m) for m in miners_epochs)
 
-    # Make a list of dicts: one dict per miner-slot, hotkey→list-of-values
     data_by_miner: list[dict[str, list[float]]] = [
-        {} for _ in range(max_miners)
+        {v: [0.0] * num_epochs for v in validator_keys}
+        for _ in range(max_miners)
     ]
 
-    # Accumulate per-epoch values
     for e in range(num_epochs):
-        W = bonds_per_epoch[e]           # shape [n_valid_e, n_miner_e]
+        W     = bonds_per_epoch[e]
         vkeys = validators_epochs[e]
         mkeys = miners_epochs[e]
-
-        # maps from hotkey→row/col index this epoch
-        v_map = {hk: i for i, hk in enumerate(vkeys)}
-        m_map = {hk: i for i, hk in enumerate(mkeys)}
+        vmap  = {v: i for i, v in enumerate(vkeys)}
+        mmap  = {m: i for i, m in enumerate(mkeys)}
 
         for mi, miner in enumerate(mkeys):
             for validator in vkeys:
-                val = float(W[v_map[validator], m_map[miner]].item())
-                data_by_miner[mi].setdefault(validator, []).append(val)
+                val = float(W[vmap[validator], mmap[miner]].item())
+                data_by_miner[mi][validator][e] = val
 
-    # Convert each miner-dict into a list-of-lists, and normalize if requested
     result: list[list[list[float]]] = []
     for miner_dict in data_by_miner:
-        if not miner_dict:
-            # this miner slot never appeared
-            continue
-        vlist = list(miner_dict.keys())
-        rows = [miner_dict[v] for v in vlist]
+        rows = [miner_dict[v] for v in validator_keys]
 
         if normalize:
             for t in range(num_epochs):
                 epoch_vals = [row[t] for row in rows]
-                tot = sum(epoch_vals)
-                if tot > 1e-12:
+                total      = sum(epoch_vals)
+                if total > 1e-12:
                     for row in rows:
-                        row[t] /= tot
+                        row[t] /= total
 
         result.append(rows)
 
