@@ -171,6 +171,22 @@ def _run_dynamic_simulation(
                 old_miner_indices=old_miner_indices,
             )
 
+        if W_prev is not None and (
+            W_prev.shape[0] != current_validator_count
+            or W_prev.shape[1] != current_miner_count
+        ):
+            old_vals = case.validators_epochs[epoch-1]    if epoch > 0 else []
+            old_mins = case.miner_indices_epochs[epoch-1] if epoch > 0 else []
+            cur_vals = current_validators
+            cur_mins = current_miner_indices
+
+            W_prev = _align_matrix(
+                W_prev,
+                old_rows=old_vals,
+                new_rows=cur_vals,
+                old_cols=old_mins,
+                new_cols=cur_mins,
+            )
 
         simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
@@ -416,6 +432,29 @@ def _align_bond_state(
             else:
                 new_B_state[i, j] = 0.0
     return new_B_state
+
+def _align_matrix(
+    mat: torch.Tensor,
+    old_rows: list[int],
+    new_rows: list[int],
+    old_cols: list[int],
+    new_cols: list[int],
+) -> torch.Tensor:
+    """
+    Reindex `mat` from shape [len(old_rows)×len(old_cols)]
+    → [len(new_rows)×len(new_cols)] by:
+      • dropping any (row,col) not in the old lists,
+      • zero-padding any new row or col.
+    """
+    out = mat.new_zeros((len(new_rows), len(new_cols)))
+    row_map = {uid: i for i, uid in enumerate(old_rows)}
+    col_map = {uid: j for j, uid in enumerate(old_cols)}
+
+    for i, r in enumerate(new_rows):
+        for j, c in enumerate(new_cols):
+            if r in row_map and c in col_map:
+                out[i, j] = mat[row_map[r], col_map[c]]
+    return out
 
 def _align_weights_consensus_state(
     C_state: torch.Tensor,
