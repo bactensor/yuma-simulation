@@ -7,6 +7,8 @@ from yuma_simulation._internal.charts_utils import (
     _plot_relative_dividends,
     _plot_relative_dividends_comparisson,
     _generate_chart_for_type,
+    _plot_bonds_metagraph_dynamic,
+    _plot_validator_server_weights_subplots_dynamic,
 )
 from yuma_simulation._internal.simulation_utils import (
     _generate_draggable_html_table,
@@ -103,7 +105,7 @@ def generate_metagraph_based_chart_table(
             normal_case, yuma_version, yuma_config
         )
 
-        _, validators_relative_dividends_normal, _, _ = _run_dynamic_simulation(
+        _, validators_relative_dividends_normal, bonds_per_epoch, _ = _run_dynamic_simulation(
             case=normal_case,
             yuma_version=yuma_version,
             yuma_config=yuma_config,
@@ -118,9 +120,36 @@ def generate_metagraph_based_chart_table(
             to_base64=True,
         )
 
-        table_data[yuma_version].append(chart_normal)
+        charts_weights = _plot_validator_server_weights_subplots_dynamic(
+            case=normal_case,
+            case_name=final_case_name_normal,
+            to_base64=True,
+        )
 
-    case_row_ranges = [(0, 0, 0)]
+        charts_bonds = _plot_bonds_metagraph_dynamic(
+            case=normal_case,
+            bonds_per_epoch=bonds_per_epoch,
+            case_name=final_case_name_normal,
+            to_base64=True,
+        )
+
+        charts_bonds_normalized = _plot_bonds_metagraph_dynamic(
+            case=normal_case,
+            bonds_per_epoch=bonds_per_epoch,
+            case_name=final_case_name_normal,
+            to_base64=True,
+            normalize=True,
+        )
+
+        table_data[yuma_version].extend([
+            chart_normal,
+            charts_weights,
+            charts_bonds,
+            charts_bonds_normalized,
+        ])
+
+
+    case_row_ranges = [(0, 0, 0), (1, 1, 1), (2, 2, 2), (3, 3, 3)]
     summary_table = pd.DataFrame(table_data)
     if draggable_table:
         full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)
@@ -157,7 +186,7 @@ def generate_metagraph_based_chart_table_shifted_comparisson(
             normal_case, shifted_case, yuma_version, yuma_config
         )
 
-        _, validators_relative_dividends_normal, _, _ = _run_dynamic_simulation(
+        _, validators_relative_dividends_normal, bonds_per_epoch, _ = _run_dynamic_simulation(
             case=normal_case,
             yuma_version=yuma_version,
             yuma_config=yuma_config,
@@ -201,15 +230,26 @@ def generate_metagraph_based_chart_table_shifted_comparisson(
             to_base64=True,
             use_stakes=True,
         )
+        
+        charts_bonds = _plot_bonds_metagraph_dynamic(
+            num_epochs=normal_case.num_epochs,
+            validators_epochs=normal_case.validators_epochs,
+            miners_epochs=normal_case.servers,
+            bonds_per_epoch=bonds_per_epoch,
+            case_name=final_case_name_normal,
+            to_base64=True,
+            selected_validators=normal_case.top_validators_hotkeys
+        )
 
         table_data[yuma_version].extend([
             chart_normal,
             chart_shifted,
             chart_comparisson,
             chart_comparisson_stake_scaled,
+            charts_bonds,
         ])
 
-    case_row_ranges = [(0, 0, 0), (1, 1, 1), (2, 2, 2), (3, 3, 3)]
+    case_row_ranges = [(0, 0, 0), (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4)]
     summary_table = pd.DataFrame(table_data)
     if draggable_table:
         full_html = _generate_draggable_html_table(table_data, summary_table, case_row_ranges)

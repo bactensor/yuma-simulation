@@ -13,9 +13,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import math
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter
-from yuma_simulation._internal.cases import BaseCase
+from yuma_simulation._internal.cases import BaseCase, MetagraphCase
 
 logger = logging.getLogger("main_logger")
 
@@ -278,7 +279,9 @@ def _plot_relative_dividends(
 
         total_mean = _compute_mean(dividends)
         sign_str = f"{total_mean * 100:+.5f}%"
-        label = f"{validator}: total = {sign_str}"
+
+        label_name = case.hotkey_label_map.get(validator, validator)
+        label = f"{label_name}: total = {sign_str}"
 
         linestyle, marker, markersize, markeredgewidth = validator_styles.get(
             validator, ("-", "o", 5, 1)
@@ -547,6 +550,125 @@ def _plot_bonds(
     return None
 
 
+def _plot_bonds_metagraph_dynamic(
+    case: MetagraphCase,
+    bonds_per_epoch:  list[torch.Tensor],
+    case_name:        str,
+    to_base64:        bool = False,
+    normalize:        bool = False,
+    legend_validators:  list[str] | None = None,
+) -> str | None:
+    num_epochs = case.num_epochs
+    validators_epochs = case.validators_epochs
+    miners_epochs = case.servers
+    selected_validators = case.top_validators_hotkeys
+
+    bonds_data = _prepare_bond_data_dynamic(
+        bonds_per_epoch, validators_epochs, miners_epochs,
+        normalize=normalize,
+    )
+    subset_v = selected_validators or validators_epochs[0]
+    subset_m = (case.selected_servers or miners_epochs[0])[:10]
+
+    miner_keys = miners_epochs[0]
+    validator_keys: list[str] = []
+    for epoch in validators_epochs:
+        for v in epoch:
+            if v not in validator_keys:
+                validator_keys.append(v)
+
+    m_idx = [miner_keys.index(m) for m in subset_m]
+    v_idx = [validator_keys.index(v) for v in subset_v]
+    plot_data = [[bonds_data[mi][vi] for vi in v_idx] for mi in m_idx]
+
+    n_plots = len(plot_data)
+    cols    = 2
+    rows    = math.ceil(n_plots/cols)
+    fig_w, fig_h = 7*cols, 5*rows
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h),
+                             sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    styles = _get_validator_styles(validator_keys)
+    handles, labels = [], []
+    legend_keys = legend_validators or subset_v
+
+    x = list(range(num_epochs))
+    ticks = list(range(0, num_epochs, 5))
+    if (num_epochs-1) not in ticks:
+        ticks.append(num_epochs-1)
+    tick_labels = [str(t) for t in ticks]
+
+    for i, miner in enumerate(subset_m):
+        ax = axes[i]
+        for j, validator in enumerate(subset_v):
+            ls, mk, ms, mew = styles[validator]
+            line = ax.plot(
+                x, plot_data[i][j],
+                alpha=0.7, linewidth=2,
+                linestyle=ls, marker=mk,
+                markersize=ms, markeredgewidth=mew
+            )[0]
+            if i == 0 and validator in legend_keys:
+                handles.append(line)
+                pretty = case.hotkey_label_map.get(validator, validator)
+                labels.append(pretty)
+
+        ax.set_title(miner, fontsize=10)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(tick_labels, rotation=0)
+        ax.set_xlabel("Epoch")
+        ax.tick_params(axis='x', labelbottom=True)
+        if i == 0:
+            ax.set_ylabel("Bond Ratio" if normalize else "Bond Value")
+        ax.grid(True)
+        if normalize:
+            ax.set_ylim(0, 1.05)
+
+    for ax in axes[n_plots:]:
+        ax.set_visible(False)
+
+    supt = fig.suptitle(
+        f"Validators bonds per Miner{' normalized' if normalize else ''}\n{case_name}",
+        fontsize=14,
+        y=0.95
+    )
+
+    fig.subplots_adjust(
+        left=0.05, right=0.95,
+        top=0.85,
+        bottom=0.05,
+        wspace=0.3, hspace=0.4
+    )
+
+    fig.canvas.draw()
+    first_row = axes[:min(cols, len(axes))]
+    grid_top  = max(ax.get_position().y1 for ax in first_row)
+    title_y   = supt.get_position()[1]
+
+    legend_center_y = (grid_top + title_y) / 2
+
+    ncol = min(len(labels), 4)
+    fig.legend(
+        handles, labels,
+        loc='center',
+        bbox_to_anchor=(0.5, legend_center_y),
+        bbox_transform=fig.transFigure,
+        ncol=ncol,
+        frameon=False,
+        fontsize="small",
+        handletextpad=0.3,
+        columnspacing=0.5
+    )
+
+    if to_base64:
+        return _plot_to_base64(fig)
+    plt.show()
+    plt.close(fig)
+    return None
+
+
+
 def _plot_validator_server_weights(
     validators: list[str],
     weights_epochs: list[torch.Tensor],
@@ -744,6 +866,119 @@ def _plot_validator_server_weights_subplots(
     return None
 
 
+def _plot_validator_server_weights_subplots_dynamic(
+    case: MetagraphCase,
+    case_name:            str,
+    to_base64:            bool = False,
+) -> str | None:
+    """
+    Dynamic version for metagraph-based weights:
+      - case.validators_epochs[e] = list of hotkeys present in epoch e
+      - case.servers[e]           = list of server-hotkeys present in epoch e
+      - weights_epochs[e]         = tensor of shape [len(validators_epochs[e]), len(servers_epochs[e])]
+    Only plots the intersection with `selected_validators` / `selected_servers` if given.
+    """
+
+    validators_epochs = case.validators_epochs
+    servers_epochs    = case.servers
+    num_epochs        = case.num_epochs
+    hotkey_map        = case.hotkey_label_map
+    weights_epochs = case.weights_epochs
+    selected_validators = case.top_validators_hotkeys
+
+    # pick which to plot (or default to first‐epoch)
+    subset_vals = selected_validators or validators_epochs[0]
+    subset_srvs = case.selected_servers  or servers_epochs[0][:10]
+
+    # build data[srv][val][epoch] with nan where missing
+    data_cube: list[list[list[float]]] = []
+    for srv in subset_srvs:
+        per_val = []
+        for val in subset_vals:
+            series = []
+            for e in range(num_epochs):
+                ve, se, W = validators_epochs[e], servers_epochs[e], weights_epochs[e]
+                if val in ve and srv in se:
+                    r, c = ve.index(val), se.index(srv)
+                    series.append(float(W[r, c].item()))
+                else:
+                    series.append(np.nan)
+            per_val.append(series)
+        data_cube.append(per_val)
+
+    cols = 2
+    rows = math.ceil(len(subset_srvs) / cols)
+    fig_w, fig_h = 7 * cols, 5 * rows
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h),
+                             sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    styles  = _get_validator_styles(subset_vals)
+    handles, labels = [], []
+    x = list(range(num_epochs))
+
+    for i_srv, srv in enumerate(subset_srvs):
+        ax = axes[i_srv]
+        for i_val, val in enumerate(subset_vals):
+            ls, mk, ms, mew = styles[val]
+            (line,) = ax.plot(
+                x, data_cube[i_srv][i_val],
+                linestyle=ls, marker=mk,
+                markersize=ms, markeredgewidth=mew,
+                linewidth=2, alpha=0.7,
+            )
+            if i_srv == 0:
+                pretty = hotkey_map.get(val, val)
+                handles.append(line)
+                labels.append(pretty)
+
+        ax.set_title(srv, fontsize=10)
+        ax.grid(True)
+        ax.set_ylim(0, 1.05)
+        _set_default_xticks(ax, num_epochs)
+        ax.set_xlabel("Epoch")
+        if i_srv % cols == 0:
+            ax.set_ylabel("Validator Weight")
+
+    for ax in axes[len(subset_srvs):]:
+        ax.set_visible(False)
+
+    supt = fig.suptitle(
+        f"Validators' Weights per Server\n{case_name}",
+        fontsize=14,
+        y=0.95
+    )
+    fig.subplots_adjust(
+        left=0.05, right=0.95,
+        top=0.85, bottom=0.05,
+        wspace=0.3, hspace=0.4
+    )
+
+    fig.canvas.draw()
+    first_row = axes[:min(cols, len(subset_srvs))]
+    grid_top  = max(ax.get_position().y1 for ax in first_row)
+    title_y   = supt.get_position()[1]
+    legend_y  = (grid_top + title_y) / 2
+
+    ncol = min(len(labels), 4)
+    fig.legend(
+        handles, labels,
+        loc='center',
+        bbox_to_anchor=(0.5, legend_y),
+        bbox_transform=fig.transFigure,
+        ncol=ncol,
+        frameon=False,
+        fontsize="small",
+        handletextpad=0.3,
+        columnspacing=0.5
+    )
+
+    if to_base64:
+        return _plot_to_base64(fig)
+    plt.show()
+    plt.close(fig)
+    return None
+
 def _plot_incentives(
     servers: list[str],
     server_incentives_per_epoch: list[torch.Tensor],
@@ -828,6 +1063,58 @@ def _prepare_bond_data(
                         epoch_bonds[idx_v][epoch] /= total
 
     return bonds_data
+
+def _prepare_bond_data_dynamic(
+    bonds_per_epoch:    list[torch.Tensor],
+    validators_epochs:  list[list[str]],
+    miners_epochs:      list[list[str]],
+    normalize:          bool = False,
+) -> list[list[list[float]]]:
+    """Turn each epoch’s W-matrix into a [miner_slot][validator][epoch] float list,
+       padding zeros for missing entries so that normalization and indexing always work."""
+
+    num_epochs = len(bonds_per_epoch)
+
+    validator_keys: list[str] = []
+    for vlist in validators_epochs:
+        for v in vlist:
+            if v not in validator_keys:
+                validator_keys.append(v)
+
+    max_miners = max(len(m) for m in miners_epochs)
+
+    data_by_miner: list[dict[str, list[float]]] = [
+        {v: [0.0] * num_epochs for v in validator_keys}
+        for _ in range(max_miners)
+    ]
+
+    for e in range(num_epochs):
+        W     = bonds_per_epoch[e]
+        vkeys = validators_epochs[e]
+        mkeys = miners_epochs[e]
+        vmap  = {v: i for i, v in enumerate(vkeys)}
+        mmap  = {m: i for i, m in enumerate(mkeys)}
+
+        for mi, miner in enumerate(mkeys):
+            for validator in vkeys:
+                val = float(W[vmap[validator], mmap[miner]].item())
+                data_by_miner[mi][validator][e] = val
+
+    result: list[list[list[float]]] = []
+    for miner_dict in data_by_miner:
+        rows = [miner_dict[v] for v in validator_keys]
+
+        if normalize:
+            for t in range(num_epochs):
+                epoch_vals = [row[t] for row in rows]
+                total      = sum(epoch_vals)
+                if total > 1e-12:
+                    for row in rows:
+                        row[t] /= total
+
+        result.append(rows)
+
+    return result
 
 
 def _get_validator_styles(
