@@ -140,13 +140,12 @@ class MetagraphCase(BaseCase):
         for idx, meta in enumerate(self.metas):
             stakes_tensor = meta["S"]  # shape [n_validators]
             mask = stakes_tensor >= 1000
-            neg_mask = ~mask
 
             valid_indices = mask.nonzero(as_tuple=True)[0].tolist()
             valid_indices = valid_indices[: self.validators_limit]
 
-            miner_indices = neg_mask.nonzero(as_tuple=True)[0].tolist()
-            miner_indices = miner_indices[: self.server_limit]
+            n = stakes_tensor.size(0)
+            miner_indices = list(range(n))
 
             if not valid_indices:
                 raise ValueError(f"No validators have S >= 1000 in metagraph (epoch) {idx}.")
