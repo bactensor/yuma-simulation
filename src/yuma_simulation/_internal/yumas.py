@@ -20,6 +20,7 @@ class SimulationHyperparameters:
     total_subnet_stake: float = 1_000_000.0
     consensus_precision: int = 100_000
     liquid_alpha_consensus_mode: Literal["CURRENT", "PREVIOUS", "MIXED"] = "CURRENT"
+    alpha_tao_ratio: float = None
 
 @dataclass
 class YumaParams:

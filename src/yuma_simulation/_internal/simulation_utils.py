@@ -865,9 +865,8 @@ def _build_html_table(summary_table: pd.DataFrame, case_row_ranges: list[tuple[i
     Build the complete HTML table (header and body) given a summary_table and
     case row ranges.
     """
-    header_html = "<thead><tr>" + "".join(f"<th>{col}</th>" for col in summary_table.columns) + "</tr></thead>"
     body_html = f"<tbody>{_build_table_rows(summary_table, case_row_ranges)}</tbody>"
-    table_html = f"<table>{header_html}{body_html}</table>"
+    table_html = f"<table>{body_html}</table>"
     return table_html
 
 def _map_validator_names(case: "BaseCase", is_metagraph: bool) -> dict[str, str]:
