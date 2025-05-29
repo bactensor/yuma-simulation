@@ -153,12 +153,14 @@ def generate_metagraph_based_chart_table(
             case=normal_case,
             case_name=final_name,
             to_base64=True,
+            epochs_padding=epochs_padding,
         )
         chart_bonds = _plot_bonds_metagraph_dynamic(
             case=normal_case,
             bonds_per_epoch=bonds,
             case_name=final_name,
             to_base64=True,
+            epochs_padding=epochs_padding,
         )
         chart_bonds_norm = _plot_bonds_metagraph_dynamic(
             case=normal_case,
@@ -166,6 +168,7 @@ def generate_metagraph_based_chart_table(
             case_name=final_name,
             to_base64=True,
             normalize=True,
+            epochs_padding=epochs_padding,
         )
         table_data[version].extend([chart_rel, chart_weights, chart_bonds, chart_bonds_norm])
 

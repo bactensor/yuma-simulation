@@ -518,6 +518,7 @@ def _plot_bonds(
     plt.close(fig)
     return None
 
+
 def _plot_bonds_metagraph_dynamic(
     case: MetagraphCase,
     bonds_per_epoch:    list[torch.Tensor],
@@ -525,8 +526,14 @@ def _plot_bonds_metagraph_dynamic(
     to_base64:          bool = False,
     normalize:          bool = False,
     legend_validators:  list[str] | None = None,
+    epochs_padding:     int = 0,
 ) -> str | None:
     num_epochs        = case.num_epochs
+    plot_epochs       = num_epochs - epochs_padding
+    if plot_epochs <= 0:
+        logger.warning("Nothing to plot (padding >= total_epochs).")
+        return None
+
     validators_epochs = case.validators_epochs
     miners_epochs     = case.servers
     selected_validators = case.top_validators_hotkeys
@@ -546,13 +553,18 @@ def _plot_bonds_metagraph_dynamic(
             if v not in validator_keys:
                 validator_keys.append(v)
 
-    m_idx = [miner_keys.index(m)      for m      in subset_m]
-    v_idx = [validator_keys.index(v)  for v      in subset_v]
-    plot_data = [[bonds_data[mi][vi] for vi in v_idx] for mi in m_idx]
+    m_idx = [miner_keys.index(m)     for m in subset_m]
+    v_idx = [validator_keys.index(v) for v in subset_v]
 
-    handles: list = []
-    labels:  list = []
-    legend_keys = legend_validators or subset_v
+    plot_data: list[list[list[float]]] = []
+    for mi in m_idx:
+        per_val = []
+        for vi in v_idx:
+            series = []
+            for e in range(epochs_padding, num_epochs):
+                series.append(bonds_data[mi][vi][e])
+            per_val.append(series)
+        plot_data.append(per_val)
 
     cols  = 2
     rows  = math.ceil(len(subset_m) / cols)
@@ -600,16 +612,17 @@ def _plot_bonds_metagraph_dynamic(
     )
 
     styles = _get_validator_styles(validator_keys)
-    x      = list(range(num_epochs))
-    ticks = list(range(0, num_epochs, 5))
-    if (num_epochs - 1) not in ticks:
-        ticks.append(num_epochs - 1)
+
+    x = list(range(plot_epochs))
+    ticks = list(range(0, plot_epochs, 5))
+    if (plot_epochs - 1) not in ticks:
+        ticks.append(plot_epochs - 1)
     tick_labels = [str(t) for t in ticks]
 
+    handles, labels = [], []
     for i_miner, miner in enumerate(subset_m):
         r, c = divmod(i_miner, cols)
         ax = fig.add_subplot(inner[r, c])
-
         for j, val in enumerate(subset_v):
             ls, mk, ms, mew = styles[val]
             line, = ax.plot(
@@ -618,7 +631,7 @@ def _plot_bonds_metagraph_dynamic(
                 markersize=ms, markeredgewidth=mew,
                 alpha=0.7, linewidth=2
             )
-            if i_miner == 0 and val in legend_keys:
+            if i_miner == 0 and (legend_validators or subset_v) and val in (legend_validators or subset_v):
                 handles.append(line)
                 labels.append(case.hotkey_label_map.get(val, val))
 
@@ -664,7 +677,6 @@ def _plot_bonds_metagraph_dynamic(
     plt.show()
     plt.close(fig)
     return None
-
 
 
 def _plot_validator_server_weights(
@@ -866,32 +878,38 @@ def _plot_validator_server_weights_subplots(
 
 def _plot_validator_server_weights_subplots_dynamic(
     case: MetagraphCase,
-    case_name:            str,
-    to_base64:            bool = False,
+    case_name: str,
+    epochs_padding: int = 0,
+    to_base64: bool = False,
 ) -> str | None:
     """
-    Dynamic version for metagraph-based weights:
+    Dynamic version for metagraph-based weights, skipping the first `epochs_padding` epochs:
       - case.validators_epochs[e] = list of hotkeys present in epoch e
       - case.servers[e]           = list of server-hotkeys present in epoch e
-      - weights_epochs[e]         = tensor of shape [len(validators_epochs[e]), len(servers_epochs[e])]
+      - case.weights_epochs[e]    = tensor of shape [len(validators_epochs[e]), len(servers_epochs[e])]
     Only plots the intersection with `selected_validators` / `selected_servers` if given.
     """
 
-    validators_epochs   = case.validators_epochs
-    servers_epochs      = case.servers
-    weights_epochs      = case.weights_epochs
-    num_epochs          = case.num_epochs
-    hotkey_map          = case.hotkey_label_map
-    subset_vals         = case.top_validators_hotkeys or validators_epochs[0]
-    subset_srvs         = case.selected_servers   or servers_epochs[0][:10]
+    # total and effective epoch counts
+    total_epochs = case.num_epochs
+    plot_epochs = total_epochs - epochs_padding
+    if plot_epochs <= 0:
+        logger.warning("Nothing to plot (padding >= total_epochs).")
+        return None
 
+    # subsets of interest
+    subset_vals = case.top_validators_hotkeys or case.validators_epochs[0]
+    subset_srvs = case.selected_servers   or case.servers[0][:10]
+    hotkey_map  = case.hotkey_label_map
+
+    # pre-build data cube, then slice off the first epochs_padding entries
     data_cube: list[list[list[float]]] = []
     for srv in subset_srvs:
         per_val = []
         for val in subset_vals:
             series = []
-            for e in range(num_epochs):
-                ve, se, W = validators_epochs[e], servers_epochs[e], weights_epochs[e]
+            for e in range(epochs_padding, total_epochs):
+                ve, se, W = case.validators_epochs[e], case.servers[e], case.weights_epochs[e]
                 if val in ve and srv in se:
                     r, c = ve.index(val), se.index(srv)
                     series.append(float(W[r, c].item()))
@@ -900,14 +918,11 @@ def _plot_validator_server_weights_subplots_dynamic(
             per_val.append(series)
         data_cube.append(per_val)
 
-    handles: list = []
-    labels:  list = []
-
-    cols    = 2
-    rows    = math.ceil(len(subset_srvs) / cols)
-    fig_w   = 7 * cols
-    fig_h   = 5 * rows + 2
-    fig     = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+    cols  = 2
+    rows  = math.ceil(len(subset_srvs) / cols)
+    fig_w = 7 * cols
+    fig_h = 5 * rows + 2
+    fig   = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
 
     outer_gs = GridSpec(nrows=2, ncols=1,
                         height_ratios=[1.5, 4],
@@ -916,19 +931,13 @@ def _plot_validator_server_weights_subplots_dynamic(
 
     ax_text = fig.add_subplot(outer_gs[0])
     ax_text.axis("off")
-
     para = (
         "“Validators Weights per Miner” is a visualization that shows how "
         "validators allocate their stake to different miners over time. "
-        "Each line represents a validator’s weight on a specific miner "
+        "Each line represents a validator’s weight on a specific miner."
     )
-
-    full_text = textwrap.fill(para, width=140)
-
-    ax_text.text(
-        0.5, 0.60, full_text,
-        ha="center", va="center", fontsize=11, wrap=False
-    )
+    ax_text.text(0.5, 0.6, textwrap.fill(para, width=140),
+                 ha="center", va="center", fontsize=11, wrap=False)
 
     inner_gs = GridSpecFromSubplotSpec(
         rows, cols,
@@ -936,16 +945,19 @@ def _plot_validator_server_weights_subplots_dynamic(
         wspace=0.3, hspace=0.4
     )
 
-    x = list(range(num_epochs))
+    x = list(range(plot_epochs))
     styles = _get_validator_styles(subset_vals)
 
+    handles, labels = [], []
     for i_srv, srv in enumerate(subset_srvs):
         r, c = divmod(i_srv, cols)
-        ax = fig.add_subplot(inner_gs[r, c])
+        ax  = fig.add_subplot(inner_gs[r, c])
+
         for i_val, val in enumerate(subset_vals):
+            series = data_cube[i_srv][i_val]
             ls, mk, ms, mew = styles[val]
-            (line,) = ax.plot(
-                x, data_cube[i_srv][i_val],
+            line, = ax.plot(
+                x, series,
                 linestyle=ls, marker=mk,
                 markersize=ms, markeredgewidth=mew,
                 linewidth=2, alpha=0.7,
@@ -957,7 +969,7 @@ def _plot_validator_server_weights_subplots_dynamic(
         ax.set_title(srv, fontsize=10)
         ax.grid(True)
         ax.set_ylim(0, 1.05)
-        _set_default_xticks(ax, num_epochs)
+        _set_default_xticks(ax, plot_epochs)
         ax.set_xlabel("Epoch")
         if c == 0:
             ax.set_ylabel("Validator Weight")
@@ -979,7 +991,6 @@ def _plot_validator_server_weights_subplots_dynamic(
     )
 
     fig.suptitle(f"Validators Weights per Miner\n{case_name}", fontsize=14, y=0.98)
-
     fig.tight_layout(rect=[0, 0, 1, 0.94], w_pad=0.3, h_pad=0.4)
 
     if to_base64:
@@ -1250,8 +1261,12 @@ def _construct_relative_dividends_table(
         num_epochs: total number of epochs in simulation
         alpha_tao_ratio: scaling factor to apply
     """
+    effective_epochs = num_epochs - epochs_padding
+    if effective_epochs < 0:
+        effective_epochs = 0
+
     # compute overall factor
-    factor = 361 * 0.41 * num_epochs * alpha_tao_ratio
+    factor = 361 * 0.41 * effective_epochs * alpha_tao_ratio
     rows: list[dict] = []
     for v in validators:
         row: dict[str, float] = {"validator": v}
@@ -1271,6 +1286,7 @@ def _construct_relative_dividends_table(
         rows.append(row)
     df = pd.DataFrame(rows).set_index("validator")
     return df
+
 
 def _generate_relative_dividends_summary_html(
     relative_dividends_by_version: dict[str, dict[str, list[float]]],
