@@ -1,6 +1,7 @@
 import torch
 import pandas as pd
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import Any, Optional
 import logging
 from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
@@ -194,7 +195,7 @@ class MetagraphCase(BaseCase):
             self.validators = first_validators
 
         super().__post_init__()
-    
+
     @classmethod
     def from_mg_dumper_data(
         cls,
@@ -204,12 +205,25 @@ class MetagraphCase(BaseCase):
         netuid: int,
     ) -> "MetagraphCase":
         uids = mg_data["uids"]
+        hotkeys = mg_data["hotkeys"]
+        weights = mg_data["weights"]
         first_blk = mg_data["blocks"][0]
-        initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
+        initial_hk = [str(i) for i in range(1024)]
 
+        # 2) scan through every validator & its miners exactly once per block
+        for block_weights in mg_data["weights"].values():
+            for val_id, miner_map in block_weights.items():
+                # chain the validator’s own index with all miner-indices
+                for idx in chain((int(val_id),), map(int, miner_map.keys())):
+                    uid = uids[idx]
+                    # only set it the first time we see that UID
+                    if initial_hk[uid] == str(uid):
+                        initial_hk[uid] = hotkeys[idx]
+
+        # initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
         epoch_hks = epoch_hotkeys_by_uid(
-            hotkeys = mg_data["hotkeys"],
-            uids     = mg_data["uids"],
+            hotkeys = hotkeys,
+            uids     = uids,
             weights  = mg_data["weights"],
             blocks   = mg_data["blocks"],
             initial_hotkeys=initial_hk,
