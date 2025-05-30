@@ -1,6 +1,7 @@
 import torch
 import pandas as pd
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import Any
 import logging
 from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
@@ -194,7 +195,7 @@ class MetagraphCase(BaseCase):
             self.validators = first_validators
 
         super().__post_init__()
-    
+
     @classmethod
     def from_mg_dumper_data(
         cls,
@@ -204,12 +205,40 @@ class MetagraphCase(BaseCase):
         netuid: int,
     ) -> "MetagraphCase":
         uids = mg_data["uids"]
+        hotkeys = mg_data["hotkeys"]
         first_blk = mg_data["blocks"][0]
-        initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
+        zero_stake_initial_hk_map = {}
+        small_stake_initial_hk_map = {}
+        vali_stake_initial_hk_map = {}
+
+        for block in mg_data["blocks"]:
+            for uid_idx, stake in mg_data["stakes"][str(block)].items():
+                uid_idx = int(uid_idx)
+                uid = int(uids[uid_idx])
+                hotkey = hotkeys[uid_idx]
+                if stake > 1000:
+                    vali_stake_initial_hk_map.setdefault(uid, hotkey)
+                elif stake > 0.0001:
+                    small_stake_initial_hk_map.setdefault(uid, hotkey)
+                else:
+                    zero_stake_initial_hk_map.setdefault(uid, hotkey)
+        initial_hk_map = {
+            **zero_stake_initial_hk_map,
+            **small_stake_initial_hk_map,
+            **vali_stake_initial_hk_map,
+        }
+        max_uid = max(initial_hk_map)
+        if max_uid <= 255:
+            max_uid = 255
+        else:
+            max_uid = 1023
+        initial_hk = [
+            initial_hk_map.get(i, str(i)) for i in range(max_uid + 1)
+        ]
 
         epoch_hks = epoch_hotkeys_by_uid(
-            hotkeys = mg_data["hotkeys"],
-            uids     = mg_data["uids"],
+            hotkeys = hotkeys,
+            uids     = uids,
             weights  = mg_data["weights"],
             blocks   = mg_data["blocks"],
             initial_hotkeys=initial_hk,
