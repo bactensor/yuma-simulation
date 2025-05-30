@@ -236,7 +236,6 @@ class MetagraphCase(BaseCase):
             initial_hk_map.get(i, str(i)) for i in range(max_uid + 1)
         ]
 
-        # initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
         epoch_hks = epoch_hotkeys_by_uid(
             hotkeys = hotkeys,
             uids     = uids,
