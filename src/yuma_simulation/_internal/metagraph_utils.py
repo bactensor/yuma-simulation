@@ -180,12 +180,12 @@ def fetch_metagraph_hotkeys(
     Fetch the full metagraph for `netuid` at `block` and return only the
     256-length list of hotkeys (one per slot). Retries RPC up to max_retries.
     """
-    archive = get_archive_session()
-
     for attempt in range(1, max_retries + 1):
         try:
-            meta = archive.metagraph(netuid=netuid, block=block, lite=False)
-            hotkeys: list[str] = meta.hotkeys
+            with bt.subtensor("archive") as archive:
+                meta = archive.metagraph(netuid=netuid, block=block, lite=False)
+                hotkeys: list[str] = meta.hotkeys
+
             if len(hotkeys) != 256:
                 logger.warning(
                     f"Block {block}: Expected 256 hotkeys, got {len(hotkeys)}"
