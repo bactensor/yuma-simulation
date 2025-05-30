@@ -2,6 +2,7 @@
 import logging
 import os
 import time
+import numpy as np
 import torch
 import bittensor as bt
 from multiprocessing import Pool
@@ -204,61 +205,51 @@ def fetch_metagraph_hotkeys(
                     f"block={block} after {max_retries} attempts."
                 )
 
-def ordered_weights_for_uids(
-    weight_map: dict[str, dict[str, float]],
-    uids: list[int],
-) -> list[list[float]]:
-    """
-    weight_map: dict[str(idx_i) → dict[str(idx_j) → weight]]
-    uids: list of all UIDs, where idx_str references uids[idx]
 
-    Returns a 256×256 matrix W where
-      W[i][j] = weight from UID i → UID j (0.0 if missing).
-    """
+def ordered_weights_for_uids(weight_map: dict[str, dict[str, float]], uids: list[int]) -> torch.Tensor:
     N = len(uids)
+    # Use numpy array instead of nested lists
+    result = np.zeros((256, 256), dtype=np.float32)
 
-    # build actual-UID → (actual-UID → weight)
-    weight_by_uid: dict[int, dict[int, float]] = {}
     for idx_i_str, row in weight_map.items():
         i = int(idx_i_str)
         if 0 <= i < N:
             ui = uids[i]
-            inner: dict[int, float] = {}
-            for idx_j_str, w in row.items():
-                j = int(idx_j_str)
-                if 0 <= j < N:
-                    uj = uids[j]
-                    inner[uj] = float(w)
-            weight_by_uid[ui] = inner
+            if ui < 256:
+                for idx_j_str, w in row.items():
+                    j = int(idx_j_str)
+                    if 0 <= j < N:
+                        uj = uids[j]
+                        if uj < 256:
+                            result[ui, uj] = float(w)
 
-    # emit a full 256×256 matrix in UID order 0…255
-    return [
-        [weight_by_uid.get(i, {}).get(j, 0.0) for j in range(256)]
-        for i in range(256)
-    ]
+    return torch.from_numpy(result)
+
 
 def ordered_stakes_for_uids(
     stakes_map: dict[str, float],
     uids: list[int],
-) -> list[float]:
+) -> torch.Tensor:
     """
     stakes_map: dict[str(idx) → stake]
     uids: list of all UIDs, where each idx_str in stakes_map references uids[idx]
 
-    Returns a list S of length N where
-        S[i] = stakes_map[str(i)] → converts to uid=uids[i], then stake_by_uid[uid]
-             = 0.0 if missing.
+    Returns a tensor S of length 256 where
+        S[i] = stake for uid=i, or 0.0 if missing.
     """
     N = len(uids)
-    # build uid→stake
-    stake_by_uid: dict[int, float] = {}
+
+    # Use numpy array instead of list
+    result = np.zeros(256, dtype=np.float32)
+
     for idx_str, stake in stakes_map.items():
         idx = int(idx_str)
         if 0 <= idx < N:
-            stake_by_uid[uids[idx]] = float(stake)
+            uid = uids[idx]
+            if uid < 256:  # bounds check
+                result[uid] = float(stake)
 
-    ordered_list = [stake_by_uid.get(uid, 0.0) for uid in range(256)]
-    return ordered_list
+    return torch.from_numpy(result)
 
 
 def epoch_hotkeys_by_uid(
