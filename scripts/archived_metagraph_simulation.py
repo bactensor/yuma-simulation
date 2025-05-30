@@ -2,7 +2,7 @@ import argparse
 import logging
 from argparse import Namespace
 
-from yuma_simulation.v1.api import generate_metagraph_based_chart_table
+from yuma_simulation.v1.api import generate_metagraph_based_chart_table_shifted_comparisson
 from yuma_simulation._internal.simulation_utils import _generate_relative_dividends_comparisson_table
 from yuma_simulation._internal.metagraph_utils import (
     load_metas_from_directory,
