@@ -210,7 +210,7 @@ class MetagraphCase(BaseCase):
         first_blk = mg_data["blocks"][0]
         initial_hk = [str(i) for i in range(1024)]
 
-        # 2) scan through every validator & its miners exactly once per block
+        # scan through every validator & its miners exactly once per block
         for block_weights in mg_data["weights"].values():
             for val_id, miner_map in block_weights.items():
                 # chain the validator’s own index with all miner-indices
