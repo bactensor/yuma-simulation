@@ -220,7 +220,6 @@ class MetagraphCase(BaseCase):
                     if initial_hk[uid] == str(uid):
                         initial_hk[uid] = hotkeys[idx]
 
-        # initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
         epoch_hks = epoch_hotkeys_by_uid(
             hotkeys = hotkeys,
             uids     = uids,
