@@ -206,20 +206,37 @@ class MetagraphCase(BaseCase):
     ) -> "MetagraphCase":
         uids = mg_data["uids"]
         hotkeys = mg_data["hotkeys"]
-        weights = mg_data["weights"]
         first_blk = mg_data["blocks"][0]
-        initial_hk = [str(i) for i in range(1024)]
+        zero_stake_initial_hk_map = {}
+        small_stake_initial_hk_map = {}
+        vali_stake_initial_hk_map = {}
 
-        # scan through every validator & its miners exactly once per block
-        for block_weights in mg_data["weights"].values():
-            for val_id, miner_map in block_weights.items():
-                # chain the validator’s own index with all miner-indices
-                for idx in chain((int(val_id),), map(int, miner_map.keys())):
-                    uid = uids[idx]
-                    # only set it the first time we see that UID
-                    if initial_hk[uid] == str(uid):
-                        initial_hk[uid] = hotkeys[idx]
+        for block in mg_data["blocks"]:
+            for uid_idx, stake in mg_data["stakes"][str(block)].items():
+                uid_idx = int(uid_idx)
+                uid = int(uids[uid_idx])
+                hotkey = hotkeys[uid_idx]
+                if stake > 1000:
+                    vali_stake_initial_hk_map.setdefault(uid, hotkey)
+                elif stake > 0.0001:
+                    small_stake_initial_hk_map.setdefault(uid, hotkey)
+                else:
+                    zero_stake_initial_hk_map.setdefault(uid, hotkey)
+        initial_hk_map = {
+            **zero_stake_initial_hk_map,
+            **small_stake_initial_hk_map,
+            **vali_stake_initial_hk_map,
+        }
+        max_uid = max(initial_hk_map)
+        if max_uid <= 255:
+            max_uid = 255
+        else:
+            max_uid = 1023
+        initial_hk = [
+            initial_hk_map.get(i, str(i)) for i in range(max_uid + 1)
+        ]
 
+        # initial_hk = fetch_metagraph_hotkeys(netuid, first_blk)
         epoch_hks = epoch_hotkeys_by_uid(
             hotkeys = hotkeys,
             uids     = uids,
