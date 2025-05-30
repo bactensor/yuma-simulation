@@ -1,7 +1,7 @@
 import torch
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 import logging
 from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
 
