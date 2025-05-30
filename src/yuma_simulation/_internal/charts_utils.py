@@ -788,18 +788,18 @@ def _plot_validator_server_weights_subplots(
     """
     from .simulation_utils import _slice_tensors
     weights_epochs = _slice_tensors(
-        *weights_epochs, 
-        num_validators=len(validators), 
+        *weights_epochs,
+        num_validators=len(validators),
         num_servers=len(servers)
     )
 
     x = list(range(num_epochs))
 
     fig, axes = plt.subplots(
-        1, 
-        len(servers), 
-        figsize=(14, 5), 
-        sharex=True, 
+        1,
+        len(servers),
+        figsize=(14, 5),
+        sharex=True,
         sharey=True
     )
 
@@ -1074,57 +1074,66 @@ def _prepare_bond_data(
 
     return bonds_data
 
+
 def _prepare_bond_data_dynamic(
     bonds_per_epoch:    list[torch.Tensor],
     validators_epochs:  list[list[str]],
     miners_epochs:      list[list[str]],
     normalize:          bool = False,
 ) -> list[list[list[float]]]:
-    """Turn each epoch’s W-matrix into a [miner_slot][validator][epoch] float list,
-       padding zeros for missing entries so that normalization and indexing always work."""
+    """Optimized version using numpy operations and batch tensor conversion."""
 
     num_epochs = len(bonds_per_epoch)
 
-    validator_keys: list[str] = []
+    # Get unique validators while preserving order
+    validator_keys = []
+    seen = set()
     for vlist in validators_epochs:
         for v in vlist:
-            if v not in validator_keys:
+            if v not in seen:
                 validator_keys.append(v)
+                seen.add(v)
 
     max_miners = max(len(m) for m in miners_epochs)
+    num_validators = len(validator_keys)
 
-    data_by_miner: list[dict[str, list[float]]] = [
-        {v: [0.0] * num_epochs for v in validator_keys}
-        for _ in range(max_miners)
-    ]
+    # Pre-allocate result as numpy array for faster operations
+    result_array = np.zeros((max_miners, num_validators, num_epochs), dtype=np.float32)
+
+    # Pre-create validator key to global index mapping
+    global_vmap = {v: i for i, v in enumerate(validator_keys)}
 
     for e in range(num_epochs):
-        W     = bonds_per_epoch[e]
+        W = bonds_per_epoch[e]
         vkeys = validators_epochs[e]
         mkeys = miners_epochs[e]
-        vmap  = {v: i for i, v in enumerate(vkeys)}
-        mmap  = {m: i for i, m in enumerate(mkeys)}
 
+        # Create index mappings
+        local_to_global_v = [global_vmap[v] for v in vkeys]
+
+        # Convert entire tensor to numpy once
+        W_np = W.cpu().numpy()
+
+        # Vectorized assignment
         for mi, miner in enumerate(mkeys):
-            for validator in vkeys:
-                val = float(W[vmap[validator], mmap[miner]].item())
-                data_by_miner[mi][validator][e] = val
+            # Extract the entire row for this miner
+            miner_weights = W_np[:, mi]  # All validators for this miner
 
-    result: list[list[list[float]]] = []
-    for miner_dict in data_by_miner:
-        rows = [miner_dict[v] for v in validator_keys]
+            # Assign to global positions
+            for local_vi, global_vi in enumerate(local_to_global_v):
+                result_array[mi, global_vi, e] = miner_weights[local_vi]
 
-        if normalize:
-            for t in range(num_epochs):
-                epoch_vals = [row[t] for row in rows]
-                total      = sum(epoch_vals)
-                if total > 1e-12:
-                    for row in rows:
-                        row[t] /= total
+    if normalize:
+        # Vectorized normalization across epochs
+        for t in range(num_epochs):
+            epoch_slice = result_array[:, :, t]  # [miners, validators]
+            totals = epoch_slice.sum(axis=1, keepdims=True)  # Sum per miner
+            # Avoid division by zero
+            mask = totals > 1e-12
+            epoch_slice[mask.squeeze()] /= totals[mask.squeeze()]
 
-        result.append(rows)
-
-    return result
+    # Convert back to nested lists
+    return result_array.tolist()
 
 
 def _get_validator_styles(
