@@ -48,10 +48,13 @@ def _run_simulation(
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
+    # cache those here - this is property - it might be cached property but "double caching" doesn't hurt
+    weights_epochs = case.weights_epochs
+    stakes_epochs = case.stakes_epochs
 
     for epoch in range(case.num_epochs):
-        W: torch.Tensor = case.weights_epochs[epoch]
-        S: torch.Tensor = case.stakes_epochs[epoch]
+        W: torch.Tensor = weights_epochs[epoch]
+        S: torch.Tensor = stakes_epochs[epoch]
 
         simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
@@ -128,9 +131,13 @@ def _run_dynamic_simulation(
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
+    # cache those here - this is property - it might be cached property but "double caching" doesn't hurt
+    weights_epochs = case.weights_epochs
+    stakes_epochs = case.stakes_epochs
+
     for epoch in range(case.num_epochs):
-        W: torch.Tensor = case.weights_epochs[epoch]
-        S: torch.Tensor = case.stakes_epochs[epoch]
+        W: torch.Tensor = weights_epochs[epoch]
+        S: torch.Tensor = stakes_epochs[epoch]
         current_validators: list[str] = case.validators_epochs[epoch]
         current_miner_indices: list[int] = case.miner_indices_epochs[epoch]
 
