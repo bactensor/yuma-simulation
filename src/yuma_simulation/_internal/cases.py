@@ -6,6 +6,8 @@ from typing import Any
 import logging
 from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
 
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 
 class_registry = {}
@@ -163,36 +165,45 @@ class MetagraphCase(BaseCase):
             self.validators_epochs.append(validators_for_epoch)
             self.servers.append(miners_for_epoch)
 
-        # For base_validator and top_validators, we use the first epoch as reference.
-        first_valid_indices = self.valid_indices_epochs[0]
-        first_validators = self.validators_epochs[0]
-        try:
-            if self.introduce_shift:
-                row_in_valid_indices = first_valid_indices.index(self.shift_validator_id)
-                self.base_validator = first_validators[row_in_valid_indices]
-            else:
-                self.base_validator = first_validators[0]
-        except ValueError:
-            raise ValueError(
-                "The shifted validator id is not present in the list of valid validator ids in epoch 0."
-            )
-
-        # Process top validators based on the first epoch.
-        self.top_validators_hotkeys = []
-        for tv_id in self.top_validators_ids:
+        if self.top_validators_ids:
+            # For base_validator and top_validators, we use the first epoch as reference.
+            first_valid_indices = self.valid_indices_epochs[0]
+            first_validators = self.validators_epochs[0]
             try:
-                row_in_valid_indices = first_valid_indices.index(tv_id)
-                hotkey = first_validators[row_in_valid_indices]
-                self.top_validators_hotkeys.append(hotkey)
-                if tv_id == self.shift_validator_id:
-                    self.shift_validator_hotkey = hotkey
+                if self.introduce_shift:
+                    row_in_valid_indices = first_valid_indices.index(self.shift_validator_id)
+                    self.base_validator = first_validators[row_in_valid_indices]
+                else:
+                    self.base_validator = first_validators[0]
             except ValueError:
                 raise ValueError(
-                    f"Validator id {tv_id} is not present in the valid validator IDs in the first requested."
+                    "The shifted validator id is not present in the list of valid validator ids in epoch 0."
                 )
 
-        if not self.validators:
-            self.validators = first_validators
+            # Process top validators based on the first epoch.
+            self.top_validators_hotkeys = []
+            for tv_id in self.top_validators_ids:
+                try:
+                    row_in_valid_indices = first_valid_indices.index(tv_id)
+                    hotkey = first_validators[row_in_valid_indices]
+                    self.top_validators_hotkeys.append(hotkey)
+                    if tv_id == self.shift_validator_id:
+                        self.shift_validator_hotkey = hotkey
+                except ValueError:
+                    raise ValueError(
+                        f"Validator id {tv_id} is not present in the valid validator IDs in the first requested."
+                    )
+
+            # TODO: this is used only in sythetic cases I think and have no valid meaning in metagraph case
+            #       maybe we should remove it then
+            if not self.validators:
+                self.validators = first_validators
+        else:
+            # TODO: dirty hack - we ignore introduce_shift, shift_validator_id, etc
+            assert self.top_validators_hotkeys
+            # FIXME: this is bs
+            self.base_validator = self.top_validators_hotkeys[0]
+            self.validators = self.top_validators_hotkeys
 
         super().__post_init__()
 
@@ -200,48 +211,124 @@ class MetagraphCase(BaseCase):
     def from_mg_dumper_data(
         cls,
         mg_data: dict[str, Any],
-        top_validators_ids: list[int],
-        selected_miners: list[int],
+        top_validators_ids: list[str] | None,  # FIXME: change name so it is top vali hotkeys, and make kwarg
+        selected_miners: list[str] | None,  # FIXME: make it kwarg
         netuid: int,
     ) -> "MetagraphCase":
         uids = mg_data["uids"]
         hotkeys = mg_data["hotkeys"]
-        first_blk = mg_data["blocks"][0]
-        zero_stake_initial_hk_map = {}
-        small_stake_initial_hk_map = {}
-        vali_stake_initial_hk_map = {}
+        stakes = mg_data["stakes"]
+        weights = mg_data["weights"]
+        blocks = mg_data["blocks"]
+        selected_miners = top_validators_ids = None  # FIXME: now ignore form data
 
-        for block in mg_data["blocks"]:
-            for uid_idx, stake in mg_data["stakes"][str(block)].items():
-                uid_idx = int(uid_idx)
-                uid = int(uids[uid_idx])
-                hotkey = hotkeys[uid_idx]
-                if stake > 1000:
-                    vali_stake_initial_hk_map.setdefault(uid, hotkey)
-                elif stake > 0.0001:
-                    small_stake_initial_hk_map.setdefault(uid, hotkey)
-                else:
-                    zero_stake_initial_hk_map.setdefault(uid, hotkey)
-        initial_hk_map = {
-            **zero_stake_initial_hk_map,
-            **small_stake_initial_hk_map,
-            **vali_stake_initial_hk_map,
-        }
-        max_uid = max(initial_hk_map)
-        if max_uid <= 255:
-            max_uid = 255
-        else:
-            max_uid = 1023
-        initial_hk = [
-            initial_hk_map.get(i, str(i)) for i in range(max_uid + 1)
-        ]
+        # ── Step 1: Compute top_validators_ids (sources in weights) ──
+        if top_validators_ids is None:
+            # Track max stake per source-hotkey
+            validator_max_stake: dict[str, float] = {}
 
-        epoch_hks = epoch_hotkeys_by_uid(
-            hotkeys = hotkeys,
-            uids     = uids,
-            weights  = mg_data["weights"],
-            blocks   = mg_data["blocks"],
-            initial_hotkeys=initial_hk,
+            # Loop over every block and every source in weights[blk]
+            for blk_str, block_weights in weights.items():
+                # For each source index that appears in this block’s weights:
+                for src_idx_str in block_weights.keys():
+                    src_idx = int(src_idx_str)
+                    hk_src = hotkeys[src_idx]
+
+                    # Look up that source’s stake in this block (default 0.0 if missing)
+                    stake_amt = stakes.get(blk_str, {}).get(src_idx_str, 0.0)
+
+                    prev_max = validator_max_stake.get(hk_src, 0.0)
+                    if stake_amt > prev_max:
+                        validator_max_stake[hk_src] = stake_amt
+
+            # Sort validators by descending max‐stake, take top 5 hotkeys
+            sorted_validators = sorted(
+                validator_max_stake.items(),
+                key=lambda kv: kv[1],
+                reverse=True
+            )
+            top_validators_ids = [hk for (hk, _) in sorted_validators[:5]]
+
+        # ── Step 2: Build per‐block “received weight” and compute selected_miners ──
+        if selected_miners is None:
+            # 2a) Gather all hotkeys that appear as targets in any weights[blk]
+            target_hotkeys: set[str] = set()
+            for blk_str, block_w in weights.items():
+                for src_idx_str, tgt_map in block_w.items():
+                    for tgt_idx_str in tgt_map.keys():
+                        tgt_idx = int(tgt_idx_str)
+                        target_hotkeys.add(hotkeys[tgt_idx])
+
+            # 2b) For each block, compute hotkey→received_weight_this_block
+            received_weight_per_block: dict[int, dict[str, float]] = {}
+            for blk in blocks:
+                blk_str = str(blk)
+                per_hk_weight: dict[str, float] = defaultdict(float)
+
+                if blk_str in weights:
+                    for src_idx_str, tgt_map in weights[blk_str].items():
+                        src_idx = int(src_idx_str)
+                        stake_amt_source = stakes.get(blk_str, {}).get(src_idx_str, 0.0)
+                        if stake_amt_source <= 0.0:
+                            continue
+                        for tgt_idx_str, weight_frac in tgt_map.items():
+                            tgt_idx = int(tgt_idx_str)
+                            hk_tgt = hotkeys[tgt_idx]
+                            per_hk_weight[hk_tgt] += stake_amt_source * weight_frac
+
+                received_weight_per_block[blk] = per_hk_weight
+
+            # 2c) Assemble a time‐series (list of floats) for each target-hotkey
+            all_hks = sorted(target_hotkeys)
+            hk_to_series: dict[str, list[float]] = { hk: [] for hk in all_hks }
+
+            for blk in blocks:
+                per_hk_w = received_weight_per_block.get(blk, {})
+                for hk in all_hks:
+                    hk_to_series[hk].append(per_hk_w.get(hk, 0.0))
+
+            # 2d) Compute total, max, min, spread per hotkey
+            total_received: dict[str, float] = {}
+            max_received: dict[str, float]   = {}
+            min_received: dict[str, float]   = {}
+            spread: dict[str, float]         = {}
+
+            for hk, series in hk_to_series.items():
+                total_received[hk] = sum(series)
+                max_received[hk]   = max(series) if series else 0.0
+                min_received[hk]   = min(series) if series else 0.0
+                spread[hk]         = max_received[hk] - min_received[hk]
+
+            # 2e) Pick top 2 by total_received
+            sorted_by_total = sorted(
+                total_received.items(),
+                key=lambda kv: kv[1],
+                reverse=True
+            )
+            top_two_by_total = [hk for (hk, _) in sorted_by_total[:2]]
+
+            # 2f) Pick top 2 by spread (max−min), skipping any already chosen
+            sorted_by_spread = sorted(
+                spread.items(),
+                key=lambda kv: kv[1],
+                reverse=True
+            )
+            top_two_by_spread: list[str] = []
+            for hk, _ in sorted_by_spread:
+                if hk not in top_two_by_total:
+                    top_two_by_spread.append(hk)
+                    if len(top_two_by_spread) == 2:
+                        break
+
+            selected_miners = top_two_by_total + top_two_by_spread
+
+        epoch_hks: dict[int, list[str]] = epoch_hotkeys_by_uid(
+            hotkeys=hotkeys,
+            uids=uids,
+            stakes=stakes,
+            blocks=mg_data["blocks"],
+            # Pass n_slots=None so the function scans and picks 256 vs. 1024:
+            n_slots=None,
         )
 
         metas: list[dict] = []
@@ -266,7 +353,7 @@ class MetagraphCase(BaseCase):
         case = cls(
             metas=metas,
             num_epochs=len(metas),
-            top_validators_ids=top_validators_ids,
+            top_validators_hotkeys=top_validators_ids,
         )
 
         case.hotkey_label_map = {
@@ -275,7 +362,7 @@ class MetagraphCase(BaseCase):
             if label
         }
 
-        case.selected_servers = [initial_hk[i] for i in selected_miners if 0 <= i < len(initial_hk)]
+        case.selected_servers = selected_miners
         return case
 
     @property
