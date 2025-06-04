@@ -4,7 +4,13 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any
 import logging
-from .metagraph_utils import fetch_metagraph_hotkeys, epoch_hotkeys_by_uid, ordered_stakes_for_uids, ordered_weights_for_uids
+from .metagraph_utils import (
+    fetch_metagraph_hotkeys,
+    epoch_hotkeys_by_uid,
+    ordered_stakes_for_uids,
+    ordered_weights_for_uids,
+    filter_duplicate_validators,
+)
 
 from collections import defaultdict
 
@@ -222,6 +228,11 @@ class MetagraphCase(BaseCase):
         blocks = mg_data["blocks"]
         selected_miners = top_validators_ids = None  # FIXME: now ignore form data
 
+        weights = {
+            blk: filter_duplicate_validators(blk_weights, uids, stakes[blk], hotkeys)
+            for blk, blk_weights in weights.items()
+        }
+
         # ── Step 1: Compute top_validators_ids (sources in weights) ──
         if top_validators_ids is None:
             # Track max stake per source-hotkey
@@ -336,14 +347,13 @@ class MetagraphCase(BaseCase):
             b = str(block)
 
             stakes_map = mg_data["stakes"][b]    # dict[str(idx) → float stake]
-            weight_map = mg_data["weights"][b]   # dict[str(i) → dict[str(j) → float]]
+            weight_map = weights[b]   # dict[str(i) → dict[str(j) → float]]
 
-            S = ordered_stakes_for_uids(stakes_map, uids)      # list[float], len = len(uids)
-            W = ordered_weights_for_uids(weight_map, uids)     # list[list[float]], NxN
+            S = ordered_stakes_for_uids(stakes_map, uids).double()      # list[float], len = len(uids)
+            W = ordered_weights_for_uids(weight_map, uids).double()      # list[list[float]], NxN
+
             hk = epoch_hks[block]
-            if len(hk) == 0:
-                print(S)
-                print(mg_data["weights"][b])
+
             metas.append({
                 "S": S,
                 "W": W,

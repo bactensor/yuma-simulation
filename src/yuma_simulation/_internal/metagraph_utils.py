@@ -1,4 +1,5 @@
 
+from collections import defaultdict
 import logging
 import os
 import time
@@ -206,6 +207,45 @@ def fetch_metagraph_hotkeys(
                 )
 
 
+def filter_duplicate_validators(
+    weight_map: dict[str, dict[str, float]],
+    uids: list[int],
+    stakes: dict[str, float],
+    hotkeys,
+) -> dict[str, dict[str, float]]:
+    """
+    Filters weight_map to keep only one validator per UID.
+    Selection criteria: 1) Most connections, 2) If tied, larger index.
+    """
+    # Group validator indices by their UID
+    uid_to_validator_indices = defaultdict(list)
+    for idx_str in weight_map.keys():
+        idx = int(idx_str)
+        if 0 <= idx < len(uids):
+            uid = uids[idx]
+            uid_to_validator_indices[uid].append(idx)
+
+    # Select best validator for each UID
+    indices_to_keep = set()
+    for uid, validator_indices in uid_to_validator_indices.items():
+        if len(validator_indices) == 1:
+            indices_to_keep.add(validator_indices[0])
+        else:
+            # Find validator with highest stake, then largest index
+            best_idx = max(
+                validator_indices,
+                key=lambda idx: (stakes[str(idx)], idx)
+            )
+            indices_to_keep.add(best_idx)
+
+    # Build filtered weight_map
+    return {
+        idx_str: row
+        for idx_str, row in weight_map.items()
+        if int(idx_str) in indices_to_keep
+    }
+
+
 def ordered_weights_for_uids(weight_map: dict[str, dict[str, float]], uids: list[int]) -> torch.Tensor:
     N = len(uids)
     # Use numpy array instead of nested lists
@@ -247,7 +287,9 @@ def ordered_stakes_for_uids(
         if 0 <= idx < N:
             uid = uids[idx]
             if uid < 256:  # bounds check
-                result[uid] = float(stake)
+                # for duplicated uids choose highest stake
+                if float(stake) >= result[uid]:
+                    result[uid] = float(stake)
 
     return torch.from_numpy(result)
 
@@ -294,15 +336,18 @@ def epoch_hotkeys_by_uid(
 
         block_key = str(blk)
         if block_key in stakes:
-            for uid_idx_str, _stake_amt in stakes[block_key].items():
+            selected_uids_stakes = {}
+            for uid_idx_str, stake_amt in stakes[block_key].items():
                 uid_idx = int(uid_idx_str)
                 uid = int(uids[uid_idx])
-                if 0 <= uid < n_slots:
-                    hk_by_slot[uid] = hotkeys[uid_idx]
+                if stake_amt >= selected_uids_stakes.get(uid, -1):
+                    selected_uids_stakes[uid] = stake_amt
+                    if 0 <= uid < n_slots:
+                        hk_by_slot[uid] = hotkeys[uid_idx]
                 # If uid is outside 0..n_slots−1, we simply ignore it.
-
         result[blk] = hk_by_slot
 
     return result
+
 if __name__ == "__main__":
     DownloadMetagraph().run()
