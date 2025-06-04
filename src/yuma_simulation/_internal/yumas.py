@@ -1,4 +1,6 @@
 import math
+import os
+
 from dataclasses import asdict, dataclass, field
 from typing import Optional, Dict, Union
 from typing import Literal
@@ -64,6 +66,54 @@ class YumaSimulationNames:
     YUMA3_LIQUID: str = "Yuma 3 (Rhef+relative bonds) - liquid alpha on"
 
 
+def optimized_compute_consensus_weights(W: torch.Tensor, S: torch.Tensor, config) -> torch.Tensor:
+    """
+    W: (V, S) tensor of weights
+    S: (V,)   tensor of stakes
+    returns C: (S,) consensus threshold per server
+    """
+    # transpose so we have (num_servers, num_validators)
+    W_t = W.T  # [S, V]
+    # sort each row descending by weight
+    sorted_w, idx = torch.sort(W_t, dim=1, descending=True)        # [S, V]
+    # reorder stakes in the same order
+    sorted_s = S[idx]                                              # [S, V]
+    # cumulative stakes down each server‐row
+    cum_s = sorted_s.cumsum(dim=1)                                 # [S, V]
+    # find first position where cum_s > kappa
+    # (if it never exceeds, argmax will return 0; you can adjust fallback if needed)
+    exceed = cum_s >= config.kappa                                         # [S, V] bool
+    first = exceed.float().argmax(dim=1)                           # [S]
+    # pick the weight at that position
+    C = sorted_w[torch.arange(W_t.size(0)), first]                 # [S]
+    return C
+
+
+def binary_search_compute_consensus_weights(W: torch.Tensor, S: torch.Tensor, config) -> torch.Tensor:
+    C = torch.zeros(W.shape[1])
+
+    for i, miner_weight in enumerate(W.T):
+        c_high = 1.0
+        c_low = 0.0
+
+        while (c_high - c_low) > 1 / config.consensus_precision:
+            c_mid = (c_high + c_low) / 2.0
+            _c_sum = (miner_weight > c_mid) * S
+            if _c_sum.sum() > config.kappa:
+                c_low = c_mid
+            else:
+                c_high = c_mid
+
+        C[i] = c_high
+    return C
+
+
+if os.environ.get('LEGACY_CONSENSUS') == '1':
+    compute_consensus_weights = binary_search_compute_consensus_weights
+else:
+    compute_consensus_weights = optimized_compute_consensus_weights
+
+
 def YumaRust(
     W: torch.Tensor,
     S: torch.Tensor,
@@ -87,22 +137,7 @@ def YumaRust(
     # === Prerank ===
     P = (S.view(-1, 1) * W).sum(dim=0)
 
-    # === Consensus ===
-    C = torch.zeros(W.shape[1], dtype=torch.float64)
-
-    for i, miner_weight in enumerate(W.T):
-        c_high = 1.0
-        c_low = 0.0
-
-        while (c_high - c_low) > 1 / config.consensus_precision:
-            c_mid = (c_high + c_low) / 2.0
-            _c_sum = (miner_weight > c_mid) * S
-            if _c_sum.sum() > config.kappa:
-                c_low = c_mid
-            else:
-                c_high = c_mid
-
-        C[i] = c_high
+    C = compute_consensus_weights(W, S, config)
 
     C = (C / C.sum() * 65_535).int() / 65_535
 
@@ -200,22 +235,7 @@ def Yuma(
     # === Prerank ===
     P = (S.view(-1, 1) * W).sum(dim=0)
 
-    # === Consensus ===
-    C = torch.zeros(W.shape[1])
-
-    for i, miner_weight in enumerate(W.T):
-        c_high = 1.0
-        c_low = 0.0
-
-        while (c_high - c_low) > 1 / config.consensus_precision:
-            c_mid = (c_high + c_low) / 2.0
-            _c_sum = (miner_weight > c_mid) * S
-            if _c_sum.sum() > config.kappa:
-                c_low = c_mid
-            else:
-                c_high = c_mid
-
-        C[i] = c_high
+    C = compute_consensus_weights(W, S, config)
 
     C = (C / C.sum() * 65_535).int() / 65_535
 
@@ -313,22 +333,7 @@ def Yuma2b(
     # === Prerank ===
     P = (S.view(-1, 1) * W).sum(dim=0)
 
-    # === Consensus ===
-    C = torch.zeros(W.shape[1])
-
-    for i, miner_weight in enumerate(W.T):
-        c_high = 1.0
-        c_low = 0.0
-
-        while (c_high - c_low) > 1 / config.consensus_precision:
-            c_mid = (c_high + c_low) / 2.0
-            _c_sum = (miner_weight > c_mid) * S
-            if _c_sum.sum() > config.kappa:
-                c_low = c_mid
-            else:
-                c_high = c_mid
-
-        C[i] = c_high
+    C = compute_consensus_weights(W, S, config)
 
     C = (C / C.sum() * 65_535).int() / 65_535
 
@@ -436,22 +441,7 @@ def Yuma2c(
     # === Prerank ===
     P = (S.view(-1, 1) * W).sum(dim=0)
 
-    # === Consensus ===
-    C = torch.zeros(W.shape[1], dtype=torch.float64)
-
-    for i, miner_weight in enumerate(W.T):
-        c_high = 1.0
-        c_low = 0.0
-
-        while (c_high - c_low) > 1 / config.consensus_precision:
-            c_mid = (c_high + c_low) / 2.0
-            _c_sum = (miner_weight > c_mid) * S
-            if _c_sum.sum() > config.kappa:
-                c_low = c_mid
-            else:
-                c_high = c_mid
-
-        C[i] = c_high
+    C = compute_consensus_weights(W, S, config)
 
     C = (C / C.sum() * 65_535).int() / 65_535
 
@@ -555,22 +545,7 @@ def Yuma3(
     # === Prerank ===
     P = (S.view(-1, 1) * W).sum(dim=0)
 
-    # === Consensus ===
-    C = torch.zeros(W.shape[1])
-
-    for i, miner_weight in enumerate(W.T):
-        c_high = 1.0
-        c_low = 0.0
-
-        while (c_high - c_low) > 1 / config.consensus_precision:
-            c_mid = (c_high + c_low) / 2.0
-            _c_sum = (miner_weight > c_mid) * S
-            if _c_sum.sum() > config.kappa:
-                c_low = c_mid
-            else:
-                c_high = c_mid
-
-        C[i] = c_high
+    C = compute_consensus_weights(W, S, config)
 
     C = (C / C.sum() * 65_535).int() / 65_535
 

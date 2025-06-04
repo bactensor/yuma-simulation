@@ -14,6 +14,7 @@ from yuma_simulation._internal.charts_utils import (
 )
 from yuma_simulation._internal.yumas import (
     SimulationHyperparameters,
+    Yuma,
     Yuma2b,
     Yuma2c,
     Yuma3,
@@ -48,10 +49,13 @@ def _run_simulation(
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
+    # cache those here - this is property - it might be cached property but "double caching" doesn't hurt
+    weights_epochs = case.weights_epochs
+    stakes_epochs = case.stakes_epochs
 
     for epoch in range(case.num_epochs):
-        W: torch.Tensor = case.weights_epochs[epoch]
-        S: torch.Tensor = case.stakes_epochs[epoch]
+        W: torch.Tensor = weights_epochs[epoch]
+        S: torch.Tensor = stakes_epochs[epoch]
 
         simulation_results, B_state, C_state, W_prev, server_consensus_weight = _call_yuma(
             epoch=epoch,
@@ -128,9 +132,13 @@ def _run_dynamic_simulation(
     W_prev: torch.Tensor | None = None
     server_consensus_weight: torch.Tensor | None = None
 
+    # cache those here - this is property - it might be cached property but "double caching" doesn't hurt
+    weights_epochs = case.weights_epochs
+    stakes_epochs = case.stakes_epochs
+
     for epoch in range(case.num_epochs):
-        W: torch.Tensor = case.weights_epochs[epoch]
-        S: torch.Tensor = case.stakes_epochs[epoch]
+        W: torch.Tensor = weights_epochs[epoch]
+        S: torch.Tensor = stakes_epochs[epoch]
         current_validators: list[str] = case.validators_epochs[epoch]
         current_miner_indices: list[int] = case.miner_indices_epochs[epoch]
 
@@ -274,7 +282,21 @@ def _call_yuma(
     elif should_reset_bonds:
         B_state[:, case.reset_bonds_index] = 0.0
 
-    if yuma_version == simulation_names.YUMA2B:
+    if yuma_version == simulation_names.YUMA2:
+        result = Yuma(
+            W,
+            S,
+            B_old=B_state,
+            C_old=C_state,
+            config=yuma_config,
+            num_servers=len(case.servers),
+            num_validators=len(case.validators),
+            use_full_matrices=case.use_full_matrices
+        )
+        B_state = result["validator_ema_bond"]
+        C_state = result["server_consensus_weight"]
+
+    elif yuma_version == simulation_names.YUMA2B:
         result = Yuma2b(
             W=W,
             W_prev=W_prev,
@@ -314,7 +336,7 @@ def _call_yuma(
         B_state = result["validator_bonds"]
         C_state = result["server_consensus_weight"]
 
-    elif yuma_version in [simulation_names.YUMA1, simulation_names.YUMA2]:
+    elif yuma_version in [simulation_names.YUMA1]:
         result = YumaRust(
             W,
             S,
