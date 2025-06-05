@@ -1,6 +1,7 @@
 import math
 import os
 
+import dataclasses
 from dataclasses import asdict, dataclass, field
 from typing import Optional, Dict, Union
 from typing import Literal
@@ -35,6 +36,7 @@ class YumaParams:
     alpha_sigmoid_steepness: float = 10.0
     override_consensus_high: float | None = None
     override_consensus_low: float | None = None
+    winner_takes_all: bool = False
 
 
 @dataclass
@@ -54,6 +56,30 @@ class YumaConfig:
 
         for key, value in yuma_params_dict.items():
             setattr(self, key, value)
+
+    def with_overrides(self, overrides: dict) -> 'YumaConfig':
+        """Create a new YumaConfig with overridden values"""
+        if not overrides:
+            return self
+        # Create deep copies of the nested objects
+        new_simulation = dataclasses.replace(self.simulation)
+        new_yuma_params = dataclasses.replace(self.yuma_params)
+
+        # Get field names from each nested dataclass
+        simulation_fields = {f.name for f in dataclasses.fields(SimulationHyperparameters)}
+        yuma_params_fields = {f.name for f in dataclasses.fields(YumaParams)}
+
+        # Apply overrides to the correct nested object
+        for key, value in overrides.items():
+            if key in simulation_fields:
+                setattr(new_simulation, key, value)
+            elif key in yuma_params_fields:
+                setattr(new_yuma_params, key, value)
+            else:
+                raise ValueError(f"Unknown config key: {key}")
+
+        # Create new YumaConfig with modified nested objects
+        return YumaConfig(simulation=new_simulation, yuma_params=new_yuma_params)
 
 
 @dataclass(frozen=True)
@@ -114,6 +140,22 @@ else:
     compute_consensus_weights = optimized_compute_consensus_weights
 
 
+def compute_incentive(R: torch.Tensor, config: YumaConfig):
+    if not config.winner_takes_all:
+        return (R / R.sum()).nan_to_num(0)  # noqa: E741
+    else:
+        # Winner takes all: give equal share to all tied winners
+        I = torch.zeros_like(R)
+        if R.numel() > 0:
+            max_value = torch.max(R)
+            # Find all indices with max value (handles ties)
+            max_indices = (R == max_value).nonzero(as_tuple=True)[0]
+            if len(max_indices) > 0:
+                # Distribute 1.0 equally among all winners
+                I[max_indices] = 1.0 / len(max_indices)
+        return I
+
+
 def YumaRust(
     W: torch.Tensor,
     S: torch.Tensor,
@@ -149,7 +191,7 @@ def YumaRust(
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
     # === Incentive ===
-    I = (R / R.sum()).nan_to_num(0)  # noqa: E741
+    I = compute_incentive(R, config)
 
     # === Trusts ===
     T = (R / P).nan_to_num(0)
@@ -246,7 +288,7 @@ def Yuma(
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
     # === Incentive ===
-    I = (R / R.sum()).nan_to_num(0)  # noqa: E741
+    I = compute_incentive(R, config)
 
     # === Trusts ===
     T = (R / P).nan_to_num(0)
@@ -344,7 +386,7 @@ def Yuma2b(
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
     # === Incentive ===
-    I = (R / R.sum()).nan_to_num(0)  # noqa: E741
+    I = compute_incentive(R, config)
 
     # === Trusts ===
     T = (R / P).nan_to_num(0)
@@ -452,7 +494,7 @@ def Yuma2c(
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
     # === Incentive ===
-    I = (R / R.sum()).nan_to_num(0)
+    I = compute_incentive(R, config)
 
     # === Trusts ===
     T = (R / P).nan_to_num(0)
@@ -556,7 +598,7 @@ def Yuma3(
     R = (S.view(-1, 1) * W_clipped).sum(dim=0)
 
     # === Incentive ===
-    I = (R / R.sum()).nan_to_num(0)  # noqa: E741
+    I = compute_incentive(R, config)
 
     # === Trusts ===
     T = (R / P).nan_to_num(0)  # noqa: F841
