@@ -1,7 +1,9 @@
 
+from collections import defaultdict
 import logging
 import os
 import time
+import numpy as np
 import torch
 import bittensor as bt
 from multiprocessing import Pool
@@ -204,123 +206,145 @@ def fetch_metagraph_hotkeys(
                     f"block={block} after {max_retries} attempts."
                 )
 
-def ordered_weights_for_uids(
+
+def filter_duplicate_validators(
     weight_map: dict[str, dict[str, float]],
     uids: list[int],
-) -> list[list[float]]:
+    stakes: dict[str, float],
+    hotkeys,
+) -> dict[str, dict[str, float]]:
     """
-    weight_map: dict[str(idx_i) → dict[str(idx_j) → weight]]
-    uids: list of all UIDs, where idx_str references uids[idx]
+    Filters weight_map to keep only one validator per UID.
+    Selection criteria: 1) Most connections, 2) If tied, larger index.
+    """
+    # Group validator indices by their UID
+    uid_to_validator_indices = defaultdict(list)
+    for idx_str in weight_map.keys():
+        idx = int(idx_str)
+        if 0 <= idx < len(uids):
+            uid = uids[idx]
+            uid_to_validator_indices[uid].append(idx)
 
-    Returns a 256×256 matrix W where
-      W[i][j] = weight from UID i → UID j (0.0 if missing).
-    """
+    # Select best validator for each UID
+    indices_to_keep = set()
+    for uid, validator_indices in uid_to_validator_indices.items():
+        if len(validator_indices) == 1:
+            indices_to_keep.add(validator_indices[0])
+        else:
+            # Find validator with highest stake, then largest index
+            best_idx = max(
+                validator_indices,
+                key=lambda idx: (stakes[str(idx)], idx)
+            )
+            indices_to_keep.add(best_idx)
+
+    # Build filtered weight_map
+    return {
+        idx_str: row
+        for idx_str, row in weight_map.items()
+        if int(idx_str) in indices_to_keep
+    }
+
+
+def ordered_weights_for_uids(weight_map: dict[str, dict[str, float]], uids: list[int]) -> torch.Tensor:
     N = len(uids)
+    # Use numpy array instead of nested lists
+    result = np.zeros((256, 256), dtype=np.float32)
 
-    # build actual-UID → (actual-UID → weight)
-    weight_by_uid: dict[int, dict[int, float]] = {}
     for idx_i_str, row in weight_map.items():
         i = int(idx_i_str)
         if 0 <= i < N:
             ui = uids[i]
-            inner: dict[int, float] = {}
-            for idx_j_str, w in row.items():
-                j = int(idx_j_str)
-                if 0 <= j < N:
-                    uj = uids[j]
-                    inner[uj] = float(w)
-            weight_by_uid[ui] = inner
+            if ui < 256:
+                for idx_j_str, w in row.items():
+                    j = int(idx_j_str)
+                    if 0 <= j < N:
+                        uj = uids[j]
+                        if uj < 256:
+                            result[ui, uj] = float(w)
 
-    # emit a full 256×256 matrix in UID order 0…255
-    return [
-        [weight_by_uid.get(i, {}).get(j, 0.0) for j in range(256)]
-        for i in range(256)
-    ]
+    return torch.from_numpy(result)
+
 
 def ordered_stakes_for_uids(
     stakes_map: dict[str, float],
     uids: list[int],
-) -> list[float]:
+) -> torch.Tensor:
     """
     stakes_map: dict[str(idx) → stake]
     uids: list of all UIDs, where each idx_str in stakes_map references uids[idx]
 
-    Returns a list S of length N where
-        S[i] = stakes_map[str(i)] → converts to uid=uids[i], then stake_by_uid[uid]
-             = 0.0 if missing.
+    Returns a tensor S of length 256 where
+        S[i] = stake for uid=i, or 0.0 if missing.
     """
     N = len(uids)
-    # build uid→stake
-    stake_by_uid: dict[int, float] = {}
+
+    # Use numpy array instead of list
+    result = np.zeros(256, dtype=np.float32)
+
     for idx_str, stake in stakes_map.items():
         idx = int(idx_str)
         if 0 <= idx < N:
-            stake_by_uid[uids[idx]] = float(stake)
+            uid = uids[idx]
+            if uid < 256:  # bounds check
+                # for duplicated uids choose highest stake
+                if float(stake) >= result[uid]:
+                    result[uid] = float(stake)
 
-    ordered_list = [stake_by_uid.get(uid, 0.0) for uid in range(256)]
-    return ordered_list
+    return torch.from_numpy(result)
 
 
 def epoch_hotkeys_by_uid(
     hotkeys: list[str],
     uids: list[int],
-    weights: dict[str, dict[str, dict[str, float]]],
+    stakes: dict[str, dict[str, float]],
     blocks: list[int],
-    initial_hotkeys: Optional[list[str]] = None,
-    n_slots: int = 256,
+    n_slots: Optional[int] = None,
 ) -> dict[int, list[str]]:
     """
-    Track slot→hotkey over each block:
-      - If `initial_hotkeys` is provided, use that for blocks[0].
-      - Thereafter, fold in only newly referenced indices from `weights`.
+    For each block in `blocks`, produce a list of length `n_slots` where:
+      - By default slot i = "i" (string form).
+      - If a given block has stakes[str(block)], then for each `"uid_idx"` in that dict:
+          uid_idx = int(uid_idx_str)
+          uid     = int(uids[uid_idx])
+          hotkey  = hotkeys[uid_idx]
+        we set slot_list[uid] = hotkey.
+    If n_slots is None, scan all blocks’ stakes once to pick 256 vs. 1024:
+      - If max(uid) > 255 → use n_slots=1024
+      - Otherwise → n_slots=256
+    Return a dict: { block_number → [hk_for_slot_0, hk_for_slot_1, …] }.
     """
+    # Step 1: Auto-detect n_slots if caller passed n_slots=None
+    if n_slots is None:
+        max_uid_seen = -1
+        for block_str, block_stakes in stakes.items():
+            for uid_idx_str in block_stakes:
+                uid_idx = int(uid_idx_str)
+                # compute actual uid
+                uid = int(uids[uid_idx])
+                if uid > max_uid_seen:
+                    max_uid_seen = uid
+        # If any uid > 255, use 1024; otherwise 256
+        n_slots = 1024 if max_uid_seen > 255 else 256
+
     result: dict[int, list[str]] = {}
 
-    # Seed with first-block snapshot if given
-    start_idx = -1
-    slot_to_idx: dict[int,int] = {}
-    if initial_hotkeys is not None:
-        first_blk = blocks[0]
-        result[first_blk] = initial_hotkeys[:]  # ground-truth
-        # Build reverse map slot→history-index by matching strings:
-        for slot, hk in enumerate(initial_hotkeys):
-            if not hk:
-                continue
-            try:
-                idx = hotkeys.index(hk)
-            except ValueError:
-                continue
-            slot_to_idx[slot] = idx
-            start_idx = max(start_idx, idx)
-        # Skip re-generating first block below
-        blocks = blocks[1:]
-
-    # Process all remaining blocks incrementally
+    # Step 2: For each block, build the per-slot hotkey list
     for blk in blocks:
-        wm = weights.get(str(blk), {})
+        # Initialize defaults: slot i → str(i)
+        hk_by_slot: list[str] = [str(slot) for slot in range(n_slots)]
 
-        # Find the highest event index mentioned this block
-        all_idxs = []
-        for src_str, row in wm.items():
-            if src_str.isdigit():
-                all_idxs.append(int(src_str))
-            for tgt_str in row:
-                if tgt_str.isdigit():
-                    all_idxs.append(int(tgt_str))
-        max_edge = max(all_idxs, default=start_idx)
-
-        # Fold in newly seen registrations/deregs
-        for idx in range(start_idx + 1, max_edge + 1):
-            slot = uids[idx]
-            slot_to_idx[slot] = idx
-        start_idx = max(start_idx, max_edge)
-
-        # Emit a full slots list for this block
-        hk_by_slot = [""] * n_slots
-        for slot, idx in slot_to_idx.items():
-            if 0 <= slot < n_slots:
-                hk_by_slot[slot] = hotkeys[idx]
-
+        block_key = str(blk)
+        if block_key in stakes:
+            selected_uids_stakes = {}
+            for uid_idx_str, stake_amt in stakes[block_key].items():
+                uid_idx = int(uid_idx_str)
+                uid = int(uids[uid_idx])
+                if stake_amt >= selected_uids_stakes.get(uid, -1):
+                    selected_uids_stakes[uid] = stake_amt
+                    if 0 <= uid < n_slots:
+                        hk_by_slot[uid] = hotkeys[uid_idx]
+                # If uid is outside 0..n_slots−1, we simply ignore it.
         result[blk] = hk_by_slot
 
     return result
