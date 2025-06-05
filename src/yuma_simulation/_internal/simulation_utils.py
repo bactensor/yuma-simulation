@@ -53,6 +53,8 @@ def _run_simulation(
     weights_epochs = case.weights_epochs
     stakes_epochs = case.stakes_epochs
 
+    yuma_config = yuma_config.with_overrides(case.get_config_overrides())
+
     for epoch in range(case.num_epochs):
         W: torch.Tensor = weights_epochs[epoch]
         S: torch.Tensor = stakes_epochs[epoch]
@@ -135,6 +137,8 @@ def _run_dynamic_simulation(
     # cache those here - this is property - it might be cached property but "double caching" doesn't hurt
     weights_epochs = case.weights_epochs
     stakes_epochs = case.stakes_epochs
+
+    yuma_config = yuma_config.with_overrides(case.get_config_overrides())
 
     for epoch in range(case.num_epochs):
         W: torch.Tensor = weights_epochs[epoch]
