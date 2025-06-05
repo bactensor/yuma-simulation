@@ -554,7 +554,21 @@ def _plot_bonds_metagraph_dynamic(
             if v not in validator_keys:
                 validator_keys.append(v)
 
-    m_idx = [miner_keys.index(m)     for m in subset_m]
+    m_idx = []
+    for m in subset_m:
+        mi = None
+        for me in miners_epochs:
+            try:
+                mi = me.index(m)
+            except ValueError:
+                pass
+            else:
+                break
+        if mi is None:
+            raise RuntimeError('AAAAA')
+        else:
+            m_idx.append(mi)
+    # m_idx = [miner_keys.index(m)     for m in subset_m]
     v_idx = [validator_keys.index(v) for v in subset_v]
 
     plot_data: list[list[list[float]]] = []
