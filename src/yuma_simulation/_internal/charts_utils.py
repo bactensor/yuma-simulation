@@ -518,7 +518,6 @@ def _plot_bonds(
     plt.close(fig)
     return None
 
-
 def _plot_bonds_metagraph_dynamic(
     case: MetagraphCase,
     bonds_per_epoch:    list[torch.Tensor],
@@ -528,8 +527,9 @@ def _plot_bonds_metagraph_dynamic(
     legend_validators:  list[str] | None = None,
     epochs_padding:     int = 0,
 ) -> str | None:
-    num_epochs        = case.num_epochs
-    plot_epochs       = num_epochs - epochs_padding
+
+    num_epochs  = case.num_epochs
+    plot_epochs = num_epochs - epochs_padding
     if plot_epochs <= 0:
         logger.warning("Nothing to plot (padding >= total_epochs).")
         return None
@@ -544,6 +544,7 @@ def _plot_bonds_metagraph_dynamic(
     )
 
     subset_v = selected_validators or validators_epochs[0]
+
     subset_m = (case.selected_servers or miners_epochs[0])[:10]
 
     miner_keys      = miners_epochs[0]
@@ -566,25 +567,54 @@ def _plot_bonds_metagraph_dynamic(
             per_val.append(series)
         plot_data.append(per_val)
 
-    cols  = 2
-    rows  = math.ceil(len(subset_m) / cols)
-    fig_w = 7 * cols
-    fig_h = 5 * rows + 2.5
-    fig   = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+    CHART_WIDTH   = 7.0  
+    CHART_HEIGHT  = 5.0 
+    TEXT_BLOCK_H  = 2.0  
+    COLS          = 2    
 
-    outer = GridSpec(
-        nrows=2, ncols=1,
-        height_ratios=[1.5, 4],
-        hspace=0.4,
+    num_charts = len(subset_m)
+    rows       = math.ceil(num_charts / COLS)  
+
+    fig_w = CHART_WIDTH * COLS          
+    fig_h = TEXT_BLOCK_H + (CHART_HEIGHT * rows)
+
+    fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+
+    chart_block_h = CHART_HEIGHT * rows
+
+    outer_gs = GridSpec(
+        nrows=2,
+        ncols=1,
+        height_ratios=[TEXT_BLOCK_H, chart_block_h],
+        hspace=0.0,
         figure=fig
     )
 
-    ax_text = fig.add_subplot(outer[0])
-    ax_text.axis("off")
+    top_gs = GridSpecFromSubplotSpec(
+        nrows=3,
+        ncols=1,
+        subplot_spec=outer_gs[0],
+        height_ratios=[0.5, 1.0, 0.5],
+        hspace=0.0
+    )
+
+    ax_title = fig.add_subplot(top_gs[0])
+    ax_title.axis("off")
+    title_norm = " normalized" if normalize else ""
+    title_str  = f"Validators bonds per Miner{title_norm}\n{case_name}"
+    ax_title.text(
+        0.5, 0.5,
+        title_str,
+        ha="center", va="center",
+        fontsize=14
+    )
+
+    ax_para = fig.add_subplot(top_gs[1])
+    ax_para.axis("off")
 
     if normalize:
         para = (
-            "This plot shows each miner’s *normalized* bond ratio from each validator over time. "
+            "This plot shows each miner’s *normalized* bond ratio from each validator over time.  "
             "At every epoch, each miner’s incoming bonds have been scaled so that their total across "
             "all validators equals 1.\n\n"
         )
@@ -597,41 +627,50 @@ def _plot_bonds_metagraph_dynamic(
         ylabel = "Bond Value"
 
     wrapped = textwrap.fill(para, width=140)
-    ax_text.text(
-        0.5, 0.55,
+    ax_para.text(
+        0.5, 0.5,
         wrapped,
         ha="center", va="center",
-        fontsize=11,
-        wrap=False
+        fontsize=11, wrap=False
     )
 
-    inner = GridSpecFromSubplotSpec(
-        rows, cols,
-        subplot_spec=outer[1],
-        wspace=0.3, hspace=0.4
-    )
+    ax_legend = fig.add_subplot(top_gs[2])
+    ax_legend.axis("off")
 
-    styles = _get_validator_styles(validator_keys)
+    inner_gs = GridSpecFromSubplotSpec(
+        nrows=rows,
+        ncols=COLS,
+        subplot_spec=outer_gs[1],
+        wspace=0.3,
+        hspace=0.4
+    )
 
     x = list(range(plot_epochs))
+    styles = _get_validator_styles(validator_keys)
+    handles = []
+    labels  = []
+
     ticks = list(range(0, plot_epochs, 5))
     if (plot_epochs - 1) not in ticks:
         ticks.append(plot_epochs - 1)
     tick_labels = [str(t) for t in ticks]
 
-    handles, labels = [], []
     for i_miner, miner in enumerate(subset_m):
-        r, c = divmod(i_miner, cols)
-        ax = fig.add_subplot(inner[r, c])
+        r, c = divmod(i_miner, COLS)
+        ax = fig.add_subplot(inner_gs[r, c])
+
         for j, val in enumerate(subset_v):
             ls, mk, ms, mew = styles[val]
             line, = ax.plot(
                 x, plot_data[i_miner][j],
-                linestyle=ls, marker=mk,
-                markersize=ms, markeredgewidth=mew,
-                alpha=0.7, linewidth=2
+                linestyle=ls,
+                marker=mk,
+                markersize=ms,
+                markeredgewidth=mew,
+                linewidth=2,
+                alpha=0.7
             )
-            if i_miner == 0 and (legend_validators or subset_v) and val in (legend_validators or subset_v):
+            if i_miner == 0 and (legend_validators or subset_v) and (val in (legend_validators or subset_v)):
                 handles.append(line)
                 labels.append(case.hotkey_label_map.get(val, val))
 
@@ -639,7 +678,7 @@ def _plot_bonds_metagraph_dynamic(
         ax.set_xticks(ticks)
         ax.set_xticklabels(tick_labels)
         ax.set_xlabel("Epoch")
-        if i_miner == 0:
+        if r == 0 and c == 0:
             ax.set_ylabel(ylabel)
         ax.grid(True)
         if normalize:
@@ -647,15 +686,17 @@ def _plot_bonds_metagraph_dynamic(
         else:
             ax.set_ylim(bottom=0)
 
-    for idx in range(len(subset_m), rows * cols):
-        r, c = divmod(idx, cols)
-        fig.add_subplot(inner[r, c]).set_visible(False)
+    total_slots = rows * COLS
+    for idx in range(num_charts, total_slots):
+        r, c = divmod(idx, COLS)
+        ax_empty = fig.add_subplot(inner_gs[r, c])
+        ax_empty.set_visible(False)
 
     ncol = min(len(labels), 4)
-    ax_text.legend(
-        handles, labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0),
+    ax_legend.legend(
+        handles,
+        labels,
+        loc="center",
         ncol=ncol,
         frameon=False,
         fontsize="small",
@@ -663,20 +704,16 @@ def _plot_bonds_metagraph_dynamic(
         columnspacing=0.5
     )
 
-    title_norm = " normalized" if normalize else ""
-    fig.suptitle(
-        f"Validators bonds per Miner{title_norm}\n{case_name}",
-        fontsize=14,
-        y=0.98
-    )
-
-    fig.tight_layout(rect=[0, 0, 1, 0.92], w_pad=0.3, h_pad=0.4)
+    fig.tight_layout(w_pad=0.3, h_pad=0.4)
 
     if to_base64:
         return _plot_to_base64(fig)
+
     plt.show()
     plt.close(fig)
     return None
+
+
 
 
 def _plot_validator_server_weights(
@@ -876,6 +913,7 @@ def _plot_validator_server_weights_subplots(
     return None
 
 
+
 def _plot_validator_server_weights_subplots_dynamic(
     case: MetagraphCase,
     case_name: str,
@@ -883,26 +921,18 @@ def _plot_validator_server_weights_subplots_dynamic(
     to_base64: bool = False,
 ) -> str | None:
     """
-    Dynamic version for metagraph-based weights, skipping the first `epochs_padding` epochs:
-      - case.validators_epochs[e] = list of hotkeys present in epoch e
-      - case.servers[e]           = list of server-hotkeys present in epoch e
-      - case.weights_epochs[e]    = tensor of shape [len(validators_epochs[e]), len(servers_epochs[e])]
-    Only plots the intersection with `selected_validators` / `selected_servers` if given.
-    """
-
-    # total and effective epoch counts
+    Dynamic version for metagraph-based weights, skipping the first `epochs_padding` epochs
+"""
     total_epochs = case.num_epochs
-    plot_epochs = total_epochs - epochs_padding
+    plot_epochs  = total_epochs - epochs_padding
     if plot_epochs <= 0:
-        logger.warning("Nothing to plot (padding >= total_epochs).")
+        print("Nothing to plot (padding >= total_epochs).")
         return None
 
-    # subsets of interest
     subset_vals = case.top_validators_hotkeys or case.validators_epochs[0]
     subset_srvs = case.selected_servers   or case.servers[0][:10]
     hotkey_map  = case.hotkey_label_map
 
-    # pre-build data cube, then slice off the first epochs_padding entries
     data_cube: list[list[list[float]]] = []
     for srv in subset_srvs:
         per_val = []
@@ -910,7 +940,7 @@ def _plot_validator_server_weights_subplots_dynamic(
             series = []
             for e in range(epochs_padding, total_epochs):
                 ve, se, W = case.validators_epochs[e], case.servers[e], case.weights_epochs[e]
-                if val in ve and srv in se:
+                if (val in ve) and (srv in se):
                     r, c = ve.index(val), se.index(srv)
                     series.append(float(W[r, c].item()))
                 else:
@@ -918,49 +948,91 @@ def _plot_validator_server_weights_subplots_dynamic(
             per_val.append(series)
         data_cube.append(per_val)
 
-    cols  = 2
-    rows  = math.ceil(len(subset_srvs) / cols)
-    fig_w = 7 * cols
-    fig_h = 5 * rows + 2
-    fig   = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+    CHART_WIDTH   = 7  
+    CHART_HEIGHT  = 5   
+    TEXT_BLOCK_H  = 2    
+    COLS          = 2   
 
-    outer_gs = GridSpec(nrows=2, ncols=1,
-                        height_ratios=[1.5, 4],
-                        hspace=0.4,
-                        figure=fig)
+    num_charts = len(subset_srvs)
+    rows       = math.ceil(num_charts / COLS)
 
-    ax_text = fig.add_subplot(outer_gs[0])
-    ax_text.axis("off")
-    para = (
+    fig_w = CHART_WIDTH * COLS
+    fig_h = TEXT_BLOCK_H + (CHART_HEIGHT * rows)
+
+    fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+
+    chart_block_h = CHART_HEIGHT * rows
+
+    outer_gs = GridSpec(
+        nrows=2,
+        ncols=1,
+        height_ratios=[TEXT_BLOCK_H, chart_block_h],
+        hspace=0.0,
+        figure=fig
+    )
+
+    top_gs = GridSpecFromSubplotSpec(
+        nrows=3,
+        ncols=1,
+        subplot_spec=outer_gs[0],
+        height_ratios=[0.5, 1.0, 0.5],
+        hspace=0.0
+    )
+
+    ax_title = fig.add_subplot(top_gs[0])
+    ax_title.axis("off")
+    ax_title.text(
+        0.5, 0.5,
+        "Validators Weights per Miner",
+        ha="center", va="center",
+        fontsize=14
+    )
+
+    ax_para = fig.add_subplot(top_gs[1])
+    ax_para.axis("off")
+    paragraph = (
         "“Validators Weights per Miner” is a visualization that shows how "
         "validators allocate their stake to different miners over time. "
         "Each line represents a validator’s weight on a specific miner."
     )
-    ax_text.text(0.5, 0.6, textwrap.fill(para, width=140),
-                 ha="center", va="center", fontsize=11, wrap=False)
-
-    inner_gs = GridSpecFromSubplotSpec(
-        rows, cols,
-        subplot_spec=outer_gs[1],
-        wspace=0.3, hspace=0.4
+    ax_para.text(
+        0.5, 0.5,
+        textwrap.fill(paragraph, width=140),
+        ha="center", va="center",
+        fontsize=11, wrap=False
     )
 
-    x = list(range(plot_epochs))
-    styles = _get_validator_styles(subset_vals)
+    ax_legend = fig.add_subplot(top_gs[2])
+    ax_legend.axis("off")
 
-    handles, labels = [], []
+    inner_gs = GridSpecFromSubplotSpec(
+        nrows=rows,
+        ncols=COLS,
+        subplot_spec=outer_gs[1],
+        wspace=0.3,
+        hspace=0.4
+    )
+
+    x       = list(range(plot_epochs))
+    styles  = _get_validator_styles(subset_vals)
+    handles = []
+    labels  = []
+
     for i_srv, srv in enumerate(subset_srvs):
-        r, c = divmod(i_srv, cols)
-        ax  = fig.add_subplot(inner_gs[r, c])
+        r, c = divmod(i_srv, COLS)
+        ax = fig.add_subplot(inner_gs[r, c])
 
         for i_val, val in enumerate(subset_vals):
             series = data_cube[i_srv][i_val]
             ls, mk, ms, mew = styles[val]
             line, = ax.plot(
                 x, series,
-                linestyle=ls, marker=mk,
-                markersize=ms, markeredgewidth=mew,
-                linewidth=2, alpha=0.7,
+                linestyle=ls,
+                marker=mk,
+                markersize=ms,
+                markeredgewidth=mew,
+                linewidth=2,
+                alpha=0.7
             )
             if i_srv == 0:
                 handles.append(line)
@@ -974,15 +1046,16 @@ def _plot_validator_server_weights_subplots_dynamic(
         if c == 0:
             ax.set_ylabel("Validator Weight")
 
-    for idx in range(len(subset_srvs), rows * cols):
-        r, c = divmod(idx, cols)
-        fig.add_subplot(inner_gs[r, c]).set_visible(False)
+    total_slots = rows * COLS
+    for idx in range(num_charts, total_slots):
+        r, c = divmod(idx, COLS)
+        ax_empty = fig.add_subplot(inner_gs[r, c])
+        ax_empty.set_visible(False)
 
     ncol = min(len(labels), 4)
-    ax_text.legend(
+    ax_legend.legend(
         handles, labels,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0),
+        loc="center",
         ncol=ncol,
         frameon=False,
         fontsize="small",
@@ -990,11 +1063,11 @@ def _plot_validator_server_weights_subplots_dynamic(
         columnspacing=0.5
     )
 
-    fig.suptitle(f"Validators Weights per Miner\n{case_name}", fontsize=14, y=0.98)
-    fig.tight_layout(rect=[0, 0, 1, 0.94], w_pad=0.3, h_pad=0.4)
+    fig.tight_layout(w_pad=0.3, h_pad=0.4)
 
     if to_base64:
         return _plot_to_base64(fig)
+
     plt.show()
     plt.close(fig)
     return None
@@ -1258,44 +1331,60 @@ def _construct_relative_dividends_table(
     alpha_tao_ratio: float = 1.0,
 ) -> pd.DataFrame:
     """
-    Constructs a DataFrame comparing scaled relative dividends across Yuma versions:
+        Constructs a DataFrame comparing scaled relative dividends across Yuma versions:
       - '<version>_mean': mean of (padded) series multiplied by 361 * 0.41 * num_epochs * alpha_tao_ratio
       - if diff_versions is provided, 'diff_<vA>_<vB>': scaled_mean_vA - scaled_mean_vB
 
-    Parameters:
-        relative_dividends_by_version: mapping version->(validator->series)
-        validators: list of validators to include as rows
-        diff_versions: optional tuple (vA, vB) for diff column
-        epochs_padding: number of epochs to skip at start
-        num_epochs: total number of epochs in simulation
-        alpha_tao_ratio: scaling factor to apply
     """
     effective_epochs = num_epochs - epochs_padding
     if effective_epochs < 0:
         effective_epochs = 0
 
-    # compute overall factor
     factor = 361 * 0.41 * effective_epochs * alpha_tao_ratio
-    rows: list[dict] = []
+
+    rows: list[dict[str, str]] = []
     for v in validators:
-        row: dict[str, float] = {"validator": v}
+        row: dict[str, str] = {"validator": v}
         scaled_means: dict[str, float] = {}
+        raw_means: dict[str, float]    = {}
+
         for version, divs in relative_dividends_by_version.items():
             series = divs.get(v, [])
             trimmed = series[epochs_padding:] if len(series) > epochs_padding else []
-            arr = np.array([x if x is not None else np.nan for x in trimmed], dtype=float)
-            base_mean = float(np.nanmean(arr)) if arr.size else 0.0
+
+            arr = np.array([x if (x is not None) else np.nan for x in trimmed], dtype=float)
+
+            if arr.size > 0:
+                base_mean = float(np.nanmean(arr))
+            else:
+                base_mean = 0.0
+
+            raw_means[version] = base_mean
+
             scaled = base_mean * factor
-            row[f"{version}"] = scaled
             scaled_means[version] = scaled
+
+            scaled_str  = f"{scaled:+.2f} τ"
+            raw_pct_str = f"{(base_mean * 100):+.2f}%"
+            cell_text   = f"{scaled_str} ({raw_pct_str})"
+            row[version] = cell_text
+
         if diff_versions is not None:
             vA, vB = diff_versions
             diff_col = f"diff_{vA}_{vB}"
-            row[diff_col] = scaled_means.get(vA, 0.0) - scaled_means.get(vB, 0.0)
+
+            raw_diff    = raw_means.get(vA, 0.0) - raw_means.get(vB, 0.0)
+            scaled_diff = scaled_means.get(vA, 0.0) - scaled_means.get(vB, 0.0)
+
+            scaled_str_diff = f"{scaled_diff:+.2f} τ"
+            raw_pct_diff    = f"{(raw_diff * 100):+.2f}%"
+            cell_diff_text  = f"{scaled_str_diff} ({raw_pct_diff})"
+            row[diff_col]   = cell_diff_text
+
         rows.append(row)
+
     df = pd.DataFrame(rows).set_index("validator")
     return df
-
 
 def _generate_relative_dividends_summary_html(
     relative_dividends_by_version: dict[str, dict[str, list[float]]],
@@ -1307,13 +1396,14 @@ def _generate_relative_dividends_summary_html(
     label_map: dict[str, str] | None = None,
 ) -> str:
     """
-    Build a Bootstrap-styled HTML table for the scaled relative dividends
+    Build a Bootstrap‐styled HTML table for the scaled relative dividends
     of `top_validators` across Yuma versions, with optional display name mapping.
 
-    Scaled means by 361 * 0.41 * num_epochs * alpha_tao_ratio.
+    Scaled means by 361 * 0.41 * (num_epochs - epochs_padding) * alpha_tao_ratio.
     If `diff_versions` is provided, includes a diff column 'diff_vA_vB'.
-    If `label_map` is given, map validator IDs to display names in the index.
+    If `label_map` is given, uses that to replace validator IDs in the index.
     """
+
     df = _construct_relative_dividends_table(
         relative_dividends_by_version,
         top_validators,
@@ -1323,32 +1413,33 @@ def _generate_relative_dividends_summary_html(
         alpha_tao_ratio=alpha_tao_ratio,
     )
 
+    if label_map is not None:
+        df.index = [label_map.get(v, v) for v in df.index]
+
     tao_icon = (
-    '<svg xmlns="http://www.w3.org/2000/svg" '
-    'viewBox="0 0 467.715 408.195" '
-    'preserveAspectRatio="xMaxYMax slice" '
-    'fill="black" '
-    'width="1.5em" height="1.5em" '
-    'style="display:inline-block; '
-        'vertical-align:middle; '
-        'transform:translateY(-0.1em); '
-        'margin-left:0.05em;">'
-    '<path d="M271.215,286.17c-11.76,7.89-23.85,8.31-36.075,2.865c-11.43-5.1-16.695-14.64-16.725-26.955c-0.09-35.49-0.03-70.98-0.03-106.485'
-    'c0-2.16,0-4.305,0-7.08c-22.05,0-43.815,0-65.52,0c-1.38-13.335,9.93-27.885,22.83-29.73c5.4-0.765,10.89-1.185,16.35-1.2'
-    'c38.85-0.105,77.685-0.06,116.535-0.06c2.13,0,4.275,0,6.42,0c-0.18,16.5-11.715,30.15-30.33,30.63c-18.915,0.495-37.845,0.105-56.985,0.435'
-    'c9.9,4.125,17.7,10.455,21.255,20.7c1.5,4.335,2.4,9.105,2.445,13.68c0.225,26.415-0.15,52.845,0.195,79.26C251.805,279.99,258.36,282.9,271.215,286.17z"/>'
-    '</svg>'
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 467.715 408.195" '
+        'preserveAspectRatio="xMaxYMax slice" '
+        'fill="black" '
+        'width="1.2em" height="1.2em" '
+        'style="display:inline-block; '
+            'vertical-align:middle; '
+            'transform:translateY(-0.1em); '
+            'margin-left:0.05em;">'
+        '<path d="M271.215,286.17c-11.76,7.89-23.85,8.31-36.075,2.865c-11.43-5.1-16.695-14.64-16.725-26.955c-0.09-35.49-0.03-70.98-0.03-106.485'
+        'c0-2.16,0-4.305,0-7.08c-22.05,0-43.815,0-65.52,0c-1.38-13.335,9.93-27.885,22.83-29.73c5.4-0.765,10.89-1.185,16.35-1.2'
+        'c38.85-0.105,77.685-0.06,116.535-0.06c2.13,0,4.275,0,6.42,0c-0.18,16.5-11.715,30.15-30.33,30.63c-18.915,0.495-37.845,0.105-56.985,0.435'
+        'c9.9,4.125,17.7,10.455,21.255,20.7c1.5,4.335,2.4,9.105,2.445,13.68c0.225,26.415-0.15,52.845,0.195,79.26C251.805,279.99,258.36,282.9,271.215,286.17z"/>'
+        '</svg>'
     )
 
     for col in df.columns:
         df[col] = df[col].map(lambda x: (
             '<span style="white-space:nowrap; line-height:1em;">'
-            f"{x:+.6f}"
-            f"{tao_icon}"
-            '</span>'
+            + (x if isinstance(x, str) else f"{float(x):+.2f} τ")
+            + tao_icon
+            + '</span>'
         ))
-    if label_map is not None:
-        df.index = [label_map.get(v, v) for v in df.index]
 
     table_html = df.to_html(
         classes="table table-striped table-bordered",
@@ -1362,7 +1453,7 @@ def _generate_relative_dividends_summary_html(
         f'<p class="mb-3">'
         f"This table shows, for each of your top validators, the mean “relative dividend” "
         f"across different Yuma versions, after scaling by "
-        f"<code>361 × 0.41 × epochs-number × alpha-tao-ratio</code>. "
+        f"<code>361 × 0.41 × (epochs-number) × alpha-tao-ratio</code>. "
         f"(Higher numbers → better performance.)"
         f'</p>'
     )
